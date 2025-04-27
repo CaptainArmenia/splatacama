@@ -1,0 +1,18 @@
+[
+    {
+      "id": "machu-picchu",
+      "name": "Machu Picchu Citadel",
+      "lat": -13.1631,
+      "lon": -72.5450,
+      "preview": "/thumbs/machu.jpg",
+      "splat": "https://cdn.example.com/splats/machu.splat.zst"
+    },
+    {
+      "id": "petra-treasury",
+      "name": "Petra – Al-Khazneh",
+      "lat": 30.3220,
+      "lon": 35.4510,
+      "preview": "/thumbs/petra.jpg",
+      "splat": "https://cdn.example.com/splats/petra.splat.zst"
+    }
+  ]

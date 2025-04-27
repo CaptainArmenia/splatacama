@@ -1,0 +1,47 @@
+[
+  {
+    "id": "landmark1",
+    "name": "Site A",
+    "x": 25,
+    "y": 30,
+    "description": "Ancient ruins in the northern region",
+    "gsplatUrl": "/splats/pirca.splat",
+    "previewUrl": "/previews/site_a.jpg"
+  },
+  {
+    "id": "landmark2",
+    "name": "Site B",
+    "x": 65,
+    "y": 45,
+    "description": "Mountain observatory complex",
+    "gsplatUrl": "/splats/pachamama.splat",
+    "previewUrl": "/previews/site_b.jpg"
+  },
+  {
+    "id": "landmark3",
+    "name": "Site C",
+    "x": 40,
+    "y": 70,
+    "description": "Coastal settlement remains",
+    "gsplatUrl": "/splats/site_c.gsplat",
+    "previewUrl": "/previews/site_c.jpg"
+  },
+  {
+    "id": "landmark4",
+    "name": "Site D",
+    "x": 80,
+    "y": 20,
+    "description": "Ceremonial structure",
+    "gsplatUrl": "/splats/site_d.gsplat",
+    "previewUrl": "/previews/site_d.jpg"
+  },
+  {
+    "id": "landmark5",
+    "name": "Site E",
+    "x": 15,
+    "y": 60,
+    "description": "Ancient terraced fields",
+    "gsplatUrl": "/splats/site_e.gsplat",
+    "previewUrl": "/previews/site_e.jpg"
+  }
+]
