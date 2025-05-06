@@ -1,6 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata } from "next/types";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import "./cesium.css";
+import CesiumConfig from "@/components/CesiumConfig";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,6 +29,8 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        {/* CesiumConfig is a client component */}
+        <CesiumConfig />
         {children}
       </body>
     </html>
