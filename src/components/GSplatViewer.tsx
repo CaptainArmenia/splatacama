@@ -1,12 +1,10 @@
 'use client';
 import { getBlobUrl } from '@/utils/blobUtils';
 import { useEffect, useRef, useState } from 'react';
-import Image from 'next/image';
 import * as SPLAT from 'gsplat';
 
 type Props = { 
   url: string; 
-  preview?: string;
   backgroundColor?: string;
   showLoadingPercentage?: boolean;
   onError?: (errorMessage: string) => void; // Add new prop for error handling
@@ -14,7 +12,6 @@ type Props = {
 
 export default function GSplatViewer({ 
   url, 
-  preview, 
   backgroundColor = '#f5f5f5', 
   showLoadingPercentage = false,
   onError // Add new prop
@@ -23,16 +20,6 @@ export default function GSplatViewer({
   const [loading, setLoading] = useState(true);
   const [loadProgress, setLoadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | undefined>(undefined);
-
-  // Fetch the blob URL for preview image
-  useEffect(() => {
-    if (preview) {
-      getBlobUrl(preview).then(url => {
-        setPreviewUrl(url);
-      });
-    }
-  }, [preview]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -140,20 +127,7 @@ export default function GSplatViewer({
       
       {loading && (
         <div className="absolute inset-0 transition-opacity duration-500">
-          {preview ? (
-            <div className="relative h-full w-full">
-              <Image 
-                src={previewUrl || preview} // Use the resolved blob URL or fall back to the original
-                alt="Vista previa del modelo 3D"
-                fill
-                priority
-                className="object-cover transition-opacity duration-300"
-              />
-              <div className="absolute inset-0 bg-black bg-opacity-40" />
-            </div>
-          ) : (
-            <div className="absolute inset-0 bg-gray-100" />
-          )}
+          <div className="absolute inset-0 bg-gray-100" />
           
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <div className="bg-white bg-opacity-90 backdrop-blur-sm text-gray-800 px-6 py-4 rounded-lg shadow-lg text-center">

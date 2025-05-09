@@ -4,9 +4,6 @@ const webpack = require('webpack');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   images: {
     domains: [
       'nkzhettcqvmytil5.public.blob.vercel-storage.com',

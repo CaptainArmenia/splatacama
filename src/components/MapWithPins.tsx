@@ -9,12 +9,12 @@ import dynamic from 'next/dynamic';
 interface MapLandmark {
   id: string;
   name: string;
-  lat: number;   // Changed from x to lat
-  lng: number;   // Changed from y to lng
-  height: number; // Added height property
+  lat: number;
+  lng: number;
+  height: number;
   description: string;
-  gsplatUrl: string;
   previewUrl?: string;
+  gsplatUrl: string;  // Added this required property
 }
 
 // Humboldt Archipelago coordinates (approximate center)

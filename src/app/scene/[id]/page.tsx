@@ -38,7 +38,7 @@ export default async function ScenePage({ params }: { params: Promise<{ id: stri
   return (
     <main className="h-screen w-screen relative">
       {/* Pass the gsplatUrl to the GSplatViewer */}
-      <GSplatViewer url={landmark.gsplatUrl} preview={landmark.previewUrl} />
+      <GSplatViewer url={landmark.gsplatUrl} />
       <div className="absolute top-4 left-4 bg-black bg-opacity-50 p-4 rounded text-white">
         <h1 className="text-xl font-bold mb-2">{landmark.name}</h1>
         <p className="mb-4">{landmark.description}</p>
