@@ -8,8 +8,9 @@ type Landmark = {
   id: string;
   name: string;
   description: string;
-  x: number;
-  y: number;
+  lat: number;  // Changed from x
+  lng: number;  // Changed from y
+  height: number; // Added height property
   gsplatUrl: string;
   previewUrl?: string;
 };

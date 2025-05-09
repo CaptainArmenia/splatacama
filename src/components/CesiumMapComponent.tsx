@@ -11,6 +11,7 @@ import {
   HorizontalOrigin,
   VerticalOrigin,
 } from 'cesium';
+import { getBlobUrl } from '@/utils/blobUtils';
 
 interface MapLandmark {
   id: string;
@@ -340,6 +341,59 @@ export default function CesiumMapComponent({
     };
   }, [showCameraPosition, cesium]);
 
+  // Fetch preview image URLs from Blob storage with better error handling
+  const [landmarkPreviewUrls, setLandmarkPreviewUrls] = useState<{[id: string]: string}>({});
+  const [previewUrlsLoading, setPreviewUrlsLoading] = useState<{[id: string]: boolean}>({});
+  const [previewUrlsError, setPreviewUrlsError] = useState<{[id: string]: boolean}>({});
+  
+  useEffect(() => {
+    async function fetchPreviewUrls() {
+      const previewUrlMap: {[id: string]: string} = {};
+      const loadingMap: {[id: string]: boolean} = {};
+      const errorMap: {[id: string]: boolean} = {};
+      
+      for (const landmark of landmarks) {
+        if (landmark.previewUrl) {
+          try {
+            loadingMap[landmark.id] = true;
+            const url = await getBlobUrl(landmark.previewUrl);
+            
+            // Verify the URL is accessible and returns an image
+            try {
+              const response = await fetch(url, { method: 'HEAD' });
+              const contentType = response.headers.get('content-type');
+              
+              if (response.ok && contentType && contentType.startsWith('image/')) {
+                previewUrlMap[landmark.id] = url;
+                errorMap[landmark.id] = false;
+              } else {
+                throw new Error(`Invalid content type: ${contentType}`);
+              }
+            } catch (fetchError) {
+              console.warn(`Error verifying image at ${url}:`, fetchError);
+              errorMap[landmark.id] = true;
+              
+              // Fall back to original URL as last resort
+              previewUrlMap[landmark.id] = landmark.previewUrl;
+            }
+          } catch (error) {
+            console.error(`Error fetching preview URL for ${landmark.id}:`, error);
+            errorMap[landmark.id] = true;
+            previewUrlMap[landmark.id] = landmark.previewUrl; // Fall back to original URL
+          } finally {
+            loadingMap[landmark.id] = false;
+          }
+        }
+      }
+      
+      setLandmarkPreviewUrls(previewUrlMap);
+      setPreviewUrlsLoading(loadingMap);
+      setPreviewUrlsError(errorMap);
+    }
+    
+    fetchPreviewUrls();
+  }, [landmarks]);
+
   return (
     <>
       <div 
@@ -377,19 +431,40 @@ export default function CesiumMapComponent({
             </svg>
           </button>
 
-          {/* Preview image at the top */}
+          {/* Preview image at the top - modified with better loading and error states */}
           {selectedLandmark.previewUrl && (
             <div className="w-full h-52 relative">
-              <img 
-                src={selectedLandmark.previewUrl} 
-                alt={`Vista de ${selectedLandmark.name}`}
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-black/60 via-black/30 to-transparent flex items-start">
-                <h3 className="font-bold text-xl text-white drop-shadow-md p-4">
-                  {selectedLandmark.name}
-                </h3>
-              </div>
+              {previewUrlsLoading[selectedLandmark.id] ? (
+                <div className="w-full h-full flex items-center justify-center bg-gray-100">
+                  <div className="animate-pulse h-8 w-8 rounded-full border-4 border-orange-500 border-r-transparent" />
+                </div>
+              ) : previewUrlsError[selectedLandmark.id] ? (
+                <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-500">
+                  <div className="text-center p-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mx-auto mb-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    <p>No se pudo cargar la imagen</p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <img 
+                    src={landmarkPreviewUrls[selectedLandmark.id]} 
+                    alt={`Vista de ${selectedLandmark.name}`}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      console.error(`Error loading image for ${selectedLandmark.id}`);
+                      setPreviewUrlsError(prev => ({...prev, [selectedLandmark.id]: true}));
+                    }}
+                  />
+                  <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-black/60 via-black/30 to-transparent flex items-start">
+                    <h3 className="font-bold text-xl text-white drop-shadow-md p-4">
+                      {selectedLandmark.name}
+                    </h3>
+                  </div>
+                </>
+              )}
             </div>
           )}
           

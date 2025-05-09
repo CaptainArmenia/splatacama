@@ -7,6 +7,13 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  images: {
+    domains: [
+      'nkzhettcqvmytil5.public.blob.vercel-storage.com',
+      'vercel-storage.com',
+      'public.blob.vercel-storage.com'
+    ],
+  },
   webpack: (config, { dev, isServer }) => {
     // Find Cesium package path (works with npm, yarn, or pnpm)
     const cesiumPath = path.dirname(require.resolve('cesium/package.json'));
@@ -46,6 +53,42 @@ const nextConfig = {
   },
   experimental: {
     externalDir: true,
+  },
+  // Configure CORS headers instead
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'Access-Control-Allow-Origin',
+            value: '*',
+          },
+          {
+            key: 'Access-Control-Allow-Methods',
+            value: 'GET,OPTIONS,PATCH,DELETE,POST,PUT',
+          },
+          {
+            key: 'Access-Control-Allow-Headers',
+            value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version',
+          },
+        ],
+      },
+      {
+        // Specific headers for splat files to prevent timeouts
+        source: '/splats/:path*',
+        headers: [
+          {
+            key: 'Access-Control-Allow-Origin',
+            value: '*',
+          },
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=86400',
+          }
+        ],
+      },
+    ];
   },
 };
 

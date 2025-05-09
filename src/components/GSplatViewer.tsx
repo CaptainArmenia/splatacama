@@ -1,4 +1,5 @@
 'use client';
+import { getBlobUrl } from '@/utils/blobUtils';
 import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import * as SPLAT from 'gsplat';
@@ -8,18 +9,30 @@ type Props = {
   preview?: string;
   backgroundColor?: string;
   showLoadingPercentage?: boolean;
+  onError?: (errorMessage: string) => void; // Add new prop for error handling
 };
 
 export default function GSplatViewer({ 
   url, 
   preview, 
   backgroundColor = '#f5f5f5', 
-  showLoadingPercentage = false 
+  showLoadingPercentage = false,
+  onError // Add new prop
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [loadProgress, setLoadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | undefined>(undefined);
+
+  // Fetch the blob URL for preview image
+  useEffect(() => {
+    if (preview) {
+      getBlobUrl(preview).then(url => {
+        setPreviewUrl(url);
+      });
+    }
+  }, [preview]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -65,26 +78,31 @@ export default function GSplatViewer({
     (async () => {
       try {
         setLoading(true);
+
+        // Get the Blob URL if available
+        const blobUrl = await getBlobUrl(url);
         
-        if (url.endsWith(".splat")) {
-          await SPLAT.Loader.LoadAsync(url, scene, (progress: number) => {
+        if (blobUrl.endsWith(".splat")) {
+          await SPLAT.Loader.LoadAsync(blobUrl, scene, (progress: number) => {
               setLoadProgress(Math.round(progress * 100));
           });
-      } else if (url.endsWith(".ply")) {
+        } else if (blobUrl.endsWith(".ply")) {
           await SPLAT.PLYLoader.LoadAsync(
-              url,
+              blobUrl,
               scene,
               (progress: number) => {
                   setLoadProgress(Math.round(progress * 100));
               },
               "",
           );
-      }
+        }
         
         setLoading(false);
       } catch (err) {
-        console.error("Error loading 3D model:", err);
-        setError(err instanceof Error ? err.message : "Failed to load model");
+        const errorMsg = err instanceof Error ? err.message : 'An unknown error occurred';
+        setError(errorMsg);
+        // Call the onError callback if provided
+        onError?.(errorMsg);
         setLoading(false);
       }
     })();
@@ -99,7 +117,18 @@ export default function GSplatViewer({
       renderer.dispose();
       controls.dispose();
     };
-  }, [url]);
+  }, [url, backgroundColor, onError]);
+
+  // In the error display section:
+  if (error) {
+    // Call onError if it exists
+    useEffect(() => {
+      onError?.(error);
+    }, [error, onError]);
+
+    // You can return null here if the wrapper will handle the UI
+    return null;
+  }
 
   return (
     <div 
@@ -114,7 +143,7 @@ export default function GSplatViewer({
           {preview ? (
             <div className="relative h-full w-full">
               <Image 
-                src={preview}
+                src={previewUrl || preview} // Use the resolved blob URL or fall back to the original
                 alt="Vista previa del modelo 3D"
                 fill
                 priority
