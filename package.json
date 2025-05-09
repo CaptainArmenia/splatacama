@@ -23,6 +23,7 @@
     "react-dom": "^19.0.0",
     "underscore": "^1.13.7",
     "use-debounce": "^10.0.4",
+    "vercel": "^41.7.3",
     "zstddec": "^0.1.0"
   },
   "devDependencies": {
