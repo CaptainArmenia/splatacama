@@ -29,7 +29,7 @@ export default async function ScenePage({ params }: { params: Promise<{ id: stri
       <div className="flex h-screen w-screen items-center justify-center flex-col">
         <h1 className="text-2xl font-bold mb-4">Landmark not found</h1>
         <Link href="/" className="text-blue-500 hover:underline">
-          Back to map
+          Volver al mapa
         </Link>
       </div>
     );
@@ -43,7 +43,7 @@ export default async function ScenePage({ params }: { params: Promise<{ id: stri
         <h1 className="text-xl font-bold mb-2">{landmark.name}</h1>
         <p className="mb-4">{landmark.description}</p>
         <Link href="/" className="text-blue-500 hover:underline">
-          Back to map
+          Volver al mapa
         </Link>
       </div>
     </main>
