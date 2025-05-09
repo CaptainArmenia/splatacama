@@ -13,8 +13,8 @@ interface MapLandmark {
   lng: number;
   height: number;
   description: string;
+  gsplatUrl: string;  
   previewUrl?: string;
-  gsplatUrl: string;  // Added this required property
 }
 
 // Humboldt Archipelago coordinates (approximate center)
