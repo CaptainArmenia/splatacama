@@ -58,14 +58,15 @@ export default function CesiumMapComponent({
   showCameraPosition: initialShowCameraPosition, // Rename to indicate it's initial state
   preventPinOcclusion, // Add this to function params
 }: CesiumMapProps) {
+  // 1. All useRefs first - maintain consistent order
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<any>(null);
+  const entityRefs = useRef<{[id: string]: any}>({});
+  
+  // 2. All useState hooks
   const [mapLoaded, setMapLoaded] = useState(false);
   const [cesium, setCesium] = useState<any>(null);
-  // Use local state for camera position visibility that's initialized with the prop
   const [showCameraPosition, setShowCameraPosition] = useState(initialShowCameraPosition);
-
-  // Add camera position display logic
   const [cameraPosition, setCameraPosition] = useState({
     latitude: 0,
     longitude: 0,
@@ -73,100 +74,34 @@ export default function CesiumMapComponent({
     heading: 0,
     pitch: 0
   });
+  const [landmarkPreviewUrls, setLandmarkPreviewUrls] = useState<{[id: string]: string}>({});
+  const [previewUrlsLoading, setPreviewUrlsLoading] = useState<{[id: string]: boolean}>({});
+  const [previewUrlsError, setPreviewUrlsError] = useState<{[id: string]: boolean}>({});
 
-  // Track entities to update their appearance
-  const entityRefs = useRef<{[id: string]: any}>({});
-
+  // 3. All useEffect hooks - make sure they're all declared unconditionally
+  
   // Load Cesium
   useEffect(() => {
     async function initCesium() {
       try {
-        const loadedCesium = await loadCesium();
-        setCesium(loadedCesium);
+        // Only load Cesium on the client side
+        const cesiumModule = await import('cesium');
+        setCesium(cesiumModule);
       } catch (error) {
-        console.error("Failed to load Cesium:", error);
-        setErrorState("Could not load 3D map library");
+        console.error('Failed to load Cesium:', error);
+        setErrorState('Error loading 3D map components');
       }
     }
     
-    initCesium();
+    // Check if we're in browser environment
+    if (typeof window !== 'undefined') {
+      initCesium();
+    }
   }, [setErrorState]);
-
-  // Effect to update landmark appearance when selection changes
-  useEffect(() => {
-    if (!cesium || !viewerRef.current) return;
-    
-    // Update the appearance of all landmarks
-    Object.entries(entityRefs.current).forEach(([id, entity]) => {
-      if (entity) {
-        const isSelected = selectedLandmark && selectedLandmark.id === id;
-        
-        if (isSelected) {
-          // Create aim-like appearance for selected landmark
-          entity.point = {
-            pixelSize: 12, // Slightly smaller center dot
-            color: cesium.Color.fromCssColorString('#ff3b00'),
-            outlineColor: cesium.Color.fromCssColorString('#00ff4c'), // Bright green aim outline
-            outlineWidth: 4,
-            heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
-            disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined
-          };
-          
-          // Add a second larger point entity as the "aim ring" if it doesn't exist
-          if (!entityRefs.current[`${id}-aim`]) {
-            const aimRing = new cesium.Entity({
-              position: entity.position,
-              id: `${id}-aim`,
-              point: {
-                pixelSize: 28,
-                color: cesium.Color.fromAlpha(cesium.Color.BLACK, 0.0), // Transparent center
-                outlineColor: cesium.Color.fromCssColorString('#00ff4c'), // Bright green
-                outlineWidth: 2,
-                heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
-                disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined
-              }
-            });
-            viewerRef.current.entities.add(aimRing);
-            entityRefs.current[`${id}-aim`] = aimRing;
-          }
-        } else {
-          // Regular appearance for non-selected landmarks
-          entity.point = {
-            pixelSize: 15,
-            color: cesium.Color.fromCssColorString('#dd6b20'),
-            outlineColor: cesium.Color.BLACK,
-            outlineWidth: 2,
-            heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
-            disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined
-          };
-          
-          // Remove the aim ring if it exists
-          const aimRingId = `${id}-aim`;
-          if (entityRefs.current[aimRingId]) {
-            viewerRef.current.entities.remove(entityRefs.current[aimRingId]);
-            delete entityRefs.current[aimRingId];
-          }
-        }
-      }
-    });
-  }, [selectedLandmark, cesium, viewerRef, preventPinOcclusion]);
-
-  // Clean up aim rings when component unmounts
-  useEffect(() => {
-    return () => {
-      if (viewerRef.current && cesium) {
-        Object.entries(entityRefs.current).forEach(([id, entity]) => {
-          if (id.endsWith('-aim')) {
-            viewerRef.current.entities.remove(entity);
-          }
-        });
-      }
-    };
-  }, [cesium]);
 
   // Create viewer once Cesium is loaded
   useEffect(() => {
-    if (!containerRef.current || !cesium) return;
+    if (!cesium || !containerRef.current) return;
 
     try {
       // Create Cesium viewer
@@ -308,6 +243,78 @@ export default function CesiumMapComponent({
     // Remove selectedLandmark from the dependency array to prevent map reloading
   }, [cesium, containerRef, landmarks, humboldtCenter, setErrorState, setSelectedLandmark, preventPinOcclusion]);
 
+  // Effect to update landmark appearance when selection changes
+  useEffect(() => {
+    if (!cesium || !viewerRef.current) return;
+    
+    // Update the appearance of all landmarks
+    Object.entries(entityRefs.current).forEach(([id, entity]) => {
+      if (entity) {
+        const isSelected = selectedLandmark && selectedLandmark.id === id;
+        
+        if (isSelected) {
+          // Create aim-like appearance for selected landmark
+          entity.point = {
+            pixelSize: 12, // Slightly smaller center dot
+            color: cesium.Color.fromCssColorString('#ff3b00'),
+            outlineColor: cesium.Color.fromCssColorString('#00ff4c'), // Bright green aim outline
+            outlineWidth: 4,
+            heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
+            disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined
+          };
+          
+          // Add a second larger point entity as the "aim ring" if it doesn't exist
+          if (!entityRefs.current[`${id}-aim`]) {
+            const aimRing = new cesium.Entity({
+              position: entity.position,
+              id: `${id}-aim`,
+              point: {
+                pixelSize: 28,
+                color: cesium.Color.fromAlpha(cesium.Color.BLACK, 0.0), // Transparent center
+                outlineColor: cesium.Color.fromCssColorString('#00ff4c'), // Bright green
+                outlineWidth: 2,
+                heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
+                disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined
+              }
+            });
+            viewerRef.current.entities.add(aimRing);
+            entityRefs.current[`${id}-aim`] = aimRing;
+          }
+        } else {
+          // Regular appearance for non-selected landmarks
+          entity.point = {
+            pixelSize: 15,
+            color: cesium.Color.fromCssColorString('#dd6b20'),
+            outlineColor: cesium.Color.BLACK,
+            outlineWidth: 2,
+            heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
+            disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined
+          };
+          
+          // Remove the aim ring if it exists
+          const aimRingId = `${id}-aim`;
+          if (entityRefs.current[aimRingId]) {
+            viewerRef.current.entities.remove(entityRefs.current[aimRingId]);
+            delete entityRefs.current[aimRingId];
+          }
+        }
+      }
+    });
+  }, [selectedLandmark, cesium, viewerRef, preventPinOcclusion]);
+
+  // Clean up aim rings when component unmounts
+  useEffect(() => {
+    return () => {
+      if (viewerRef.current && cesium) {
+        Object.entries(entityRefs.current).forEach(([id, entity]) => {
+          if (id.endsWith('-aim')) {
+            viewerRef.current.entities.remove(entity);
+          }
+        });
+      }
+    };
+  }, [cesium]);
+
   // Separate useEffect for camera position tracking
   useEffect(() => {
     if (!showCameraPosition || !viewerRef.current || !cesium) return;
@@ -342,10 +349,6 @@ export default function CesiumMapComponent({
   }, [showCameraPosition, cesium]);
 
   // Fetch preview image URLs from Blob storage with better error handling
-  const [landmarkPreviewUrls, setLandmarkPreviewUrls] = useState<{[id: string]: string}>({});
-  const [previewUrlsLoading, setPreviewUrlsLoading] = useState<{[id: string]: boolean}>({});
-  const [previewUrlsError, setPreviewUrlsError] = useState<{[id: string]: boolean}>({});
-  
   useEffect(() => {
     async function fetchPreviewUrls() {
       const previewUrlMap: {[id: string]: string} = {};
@@ -394,6 +397,15 @@ export default function CesiumMapComponent({
     fetchPreviewUrls();
   }, [landmarks]);
 
+  // Return loading state or null if Cesium isn't ready
+  if (!cesium && typeof window !== 'undefined') {
+    return <div>Loading Cesium...</div>; 
+  }
+  
+  if (typeof window === 'undefined') {
+    return null; // Return nothing during SSR
+  }
+  
   return (
     <>
       <div 

@@ -2,9 +2,8 @@
 // Import React using the default import syntax
 import React from 'react';
 // Then import individual hooks separately
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import landmarks from '@/data/landmarks.json';
 
 // Define interfaces and constants outside the component
 interface MapLandmark {
@@ -38,13 +37,20 @@ const CesiumMapComponent = dynamic(
 );
 
 export default function MapWithPins() {
+  const [landmarks, setLandmarks] = useState<MapLandmark[]>([]);
   const [selectedLandmark, setSelectedLandmark] = useState<MapLandmark | null>(null);
   const [errorState, setErrorState] = useState<string | null>(null);
   const [showCameraPosition, setShowCameraPosition] = useState(false);
   const [preventPinOcclusion, setPreventPinOcclusion] = useState(true);
   
-  // Use the original landmarks data and transform if needed
-  const typedLandmarks = landmarks as unknown as MapLandmark[];
+  useEffect(() => {
+    // Only load on client side
+    import('@/data/landmarks.json')
+      .then((data) => {
+        setLandmarks(data.default);
+      })
+      .catch(console.error);
+  }, []);
 
   // Toggle camera position display
   const toggleCameraPosition = () => {
@@ -66,7 +72,7 @@ export default function MapWithPins() {
   return (
     <div className="h-full w-full relative overflow-hidden">
       <CesiumMapComponent 
-        landmarks={typedLandmarks} 
+        landmarks={landmarks} 
         humboldtCenter={humboldtCenter}
         selectedLandmark={selectedLandmark}
         setSelectedLandmark={setSelectedLandmark}
