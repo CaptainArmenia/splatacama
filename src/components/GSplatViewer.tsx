@@ -67,7 +67,7 @@ export default function GSplatViewer({
         // Create the viewer with minimal options
         viewer = new GaussianSplats3D.Viewer({
           selfDrivenMode: true,
-          //cameraUp: [0, -1, 0],
+          cameraUp: [0, -1, 0],
           initialCameraPosition: [-1, -4, 6],
           initialCameraLookAt: [0, 4, 0],
           rootElement: containerRef.current,
@@ -89,7 +89,7 @@ export default function GSplatViewer({
           {
             path: splatFileUrl,
             position: [0, 0, 0],
-            rotation: [0, 0, 0, 1],  // Quaternion format [x,y,z,w]
+            rotation: isXRCompatible ? [0, 0, 0, 1] :  new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0.01933, -0.75830, -0.65161).normalize(), new THREE.Vector3(0, 1, 0)).toArray(),  // Quaternion format [x,y,z,w]
             scale: [10, 10, 10]
           }
         ];
