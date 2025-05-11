@@ -67,7 +67,7 @@ export default function GSplatViewer({
         // Create the viewer with minimal options
         viewer = new GaussianSplats3D.Viewer({
           selfDrivenMode: true,
-          cameraUp: [0, -1, 0],
+          //cameraUp: [0, -1, 0],
           initialCameraPosition: [-1, -4, 6],
           initialCameraLookAt: [0, 4, 0],
           rootElement: containerRef.current,

@@ -111,6 +111,28 @@ const nextConfig = {
           },
         ],
       },
+      {
+        // Add specific headers for image files
+        source: '/:path*.(jpg|jpeg|png|webp|svg|gif)',
+        headers: [
+          {
+            key: 'Access-Control-Allow-Origin',
+            value: '*',
+          },
+          {
+            key: 'Cross-Origin-Resource-Policy',
+            value: 'cross-origin',
+          },
+          {
+            key: 'Timing-Allow-Origin',
+            value: '*',
+          },
+          {
+            key: 'Cross-Origin-Embedder-Policy',
+            value: 'credentialless',
+          },
+        ],
+      },
     ];
   },
   transpilePackages: ['cesium'],
