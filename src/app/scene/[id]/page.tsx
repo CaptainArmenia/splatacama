@@ -37,15 +37,25 @@ export default async function ScenePage({ params }: { params: Promise<{ id: stri
 
   return (
     <main className="h-screen w-screen relative">
-      {/* Use the correct property name gsplatUrl */}
-      <GSplatViewer url={landmark.gsplatUrl} />
-      <div className="absolute top-4 left-4 bg-black bg-opacity-50 p-4 rounded text-white">
+      {/* Pass showLoadingPercentage prop to see loading progress */}
+      <GSplatViewer 
+        url={landmark.gsplatUrl} 
+        showLoadingPercentage={true}
+      />
+      
+      <div className="absolute top-4 left-4 bg-black bg-opacity-70 p-4 rounded text-white max-w-md">
         <h1 className="text-xl font-bold mb-2">{landmark.name}</h1>
-        <p className="mb-4">{landmark.description}</p>
-        <Link href="/" className="text-blue-500 hover:underline">
-          Volver al mapa
-        </Link>
+        <p className="mb-4 text-sm opacity-90">{landmark.description}</p>
+        <div className="flex items-center gap-3">
+          <Link href="/" className="text-blue-400 hover:underline text-sm flex items-center gap-1">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Volver al mapa
+          </Link>
+        </div>
       </div>
+
     </main>
   );
 }

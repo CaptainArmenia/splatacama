@@ -51,7 +51,7 @@ const nextConfig = {
   experimental: {
     externalDir: true,
   },
-  // Configure CORS headers instead
+  // Configure headers for Cross-Origin Isolation to support SharedArrayBuffer
   async headers() {
     return [
       {
@@ -69,6 +69,19 @@ const nextConfig = {
             key: 'Access-Control-Allow-Headers',
             value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version',
           },
+          // Add Cross-Origin Isolation headers
+          {
+            key: 'Cross-Origin-Opener-Policy',
+            value: 'same-origin',
+          },
+          {
+            key: 'Cross-Origin-Embedder-Policy',
+            value: 'require-corp',
+          },
+          {
+            key: 'Cross-Origin-Resource-Policy',
+            value: 'cross-origin',
+          },
         ],
       },
       {
@@ -82,7 +95,20 @@ const nextConfig = {
           {
             key: 'Cache-Control',
             value: 'public, max-age=86400',
-          }
+          },
+          // Add Cross-Origin Isolation headers for splat files too
+          {
+            key: 'Cross-Origin-Opener-Policy',
+            value: 'same-origin',
+          },
+          {
+            key: 'Cross-Origin-Embedder-Policy',
+            value: 'require-corp',
+          },
+          {
+            key: 'Cross-Origin-Resource-Policy',
+            value: 'cross-origin',
+          },
         ],
       },
     ];
