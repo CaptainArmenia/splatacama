@@ -8,6 +8,8 @@ interface CesiumCompassProps {
 
 export default function CesiumCompass({ viewer, cesium }: CesiumCompassProps) {
   const compassRef = useRef<HTMLDivElement>(null);
+  const prevHeadingRef = useRef<number | null>(null);
+  const currentRotationRef = useRef<number>(0);
   
   useEffect(() => {
     if (!viewer || !cesium || !compassRef.current) return;
@@ -25,8 +27,40 @@ export default function CesiumCompass({ viewer, cesium }: CesiumCompassProps) {
       // Get the camera heading in degrees
       const heading = cesium.Math.toDegrees(viewer.camera.heading);
       
-      // Apply rotation to the compass
-      compassRef.current.style.transform = `rotate(${-heading}deg)`;
+      // Normalize the heading to [0, 360] range
+      const normalizedHeading = ((heading % 360) + 360) % 360;
+      
+      // If we have a previous heading, calculate shortest rotation path
+      if (prevHeadingRef.current !== null) {
+        // Calculate direct distance
+        let directDiff = normalizedHeading - prevHeadingRef.current;
+        
+        // Check if rotating the other way is shorter
+        if (Math.abs(directDiff) > 180) {
+          // Take the shorter path around the circle
+          directDiff = directDiff > 0 
+            ? directDiff - 360  // Going clockwise, but counterclockwise is shorter
+            : directDiff + 360; // Going counterclockwise, but clockwise is shorter
+        }
+        
+        // Update the current rotation directly rather than calculating from scratch each time
+        currentRotationRef.current = normalizeAngle(currentRotationRef.current + directDiff);
+        
+        // Apply the calculated rotation directly
+        compassRef.current.style.transform = `rotate(${-currentRotationRef.current}deg)`;
+      } else {
+        // First time, just set the rotation directly
+        currentRotationRef.current = normalizedHeading;
+        compassRef.current.style.transform = `rotate(${-normalizedHeading}deg)`;
+      }
+      
+      // Store this heading for next comparison
+      prevHeadingRef.current = normalizedHeading;
+    }
+    
+    // Helper to normalize an angle to [0, 360]
+    function normalizeAngle(angle: number): number {
+      return ((angle % 360) + 360) % 360;
     }
     
     return () => {
@@ -38,7 +72,8 @@ export default function CesiumCompass({ viewer, cesium }: CesiumCompassProps) {
     <div className="absolute top-4 right-4 z-10 bg-gray-900 bg-opacity-70 rounded-full p-2 shadow-lg pointer-events-auto">
       <div 
         ref={compassRef} 
-        className="relative w-14 h-14 transition-transform duration-100"
+        className="relative w-14 h-14"
+        style={{ transition: 'none' }} // Remove transition to avoid animation jumps
       >
         {/* Compass face */}
         <div className="absolute inset-0 rounded-full border-2 border-gray-400 bg-gray-700 flex items-center justify-center">
