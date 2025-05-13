@@ -1,9 +1,10 @@
-// Enhanced Cesium loader with better type handling
+// Enhanced Cesium loader with better type handling and pnpm compatibility
 
 // We're defining a global namespace for Cesium modules
 declare global {
   interface Window {
     Cesium: any;
+    CESIUM_BASE_URL: string;
   }
 }
 
@@ -24,6 +25,9 @@ export async function loadCesium() {
   }
   
   try {
+    // Ensure CESIUM_BASE_URL is set correctly
+    window.CESIUM_BASE_URL = '/cesium';
+    
     // Dynamically import Cesium
     const cesiumModule = await import('cesium');
     
@@ -34,14 +38,29 @@ export async function loadCesium() {
     Cesium = cesiumModule;
     window.Cesium = cesiumModule;
     
-    // Import CSS (handled by webpack)
+    // Import CSS with better error handling
     try {
       // Use require for CSS to handle any bundler quirks
       require('cesium/Build/Cesium/Widgets/widgets.css');
     } catch (cssError) {
-      console.warn('Could not load Cesium CSS:', cssError);
+      console.warn('Could not load Cesium CSS using require. Trying alternative method:', cssError);
+      try {
+        // Alternative way to import CSS
+        import('cesium/Build/Cesium/Widgets/widgets.css').catch(err => {
+          console.warn('Could not load Cesium CSS using import either:', err);
+        });
+      } catch (altCssError) {
+        console.warn('Both CSS loading methods failed:', altCssError);
+        // Not failing completely since we can still use Cesium without styles
+      }
     }
     
+    // Log successful load with type-safe version access
+    console.log('Cesium loaded successfully:', 
+      typeof cesiumModule === 'object' && cesiumModule !== null && 'VERSION' in cesiumModule 
+        ? cesiumModule.VERSION 
+        : 'Version not available'
+    );
     return cesiumModule;
   } catch (error) {
     console.error('Failed to load Cesium:', error);
