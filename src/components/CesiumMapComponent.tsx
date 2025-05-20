@@ -49,6 +49,78 @@ const DEFAULT_CAMERA_CONFIG = {
   }
 };
 
+// Default marker size in pixels
+const DEFAULT_MARKER_SIZE = 40;
+const SELECTED_MARKER_SIZE = 50;
+
+// Helper function to create circular image from preview URL
+const createCircularImageCanvas = (imageUrl: string, size: number = DEFAULT_MARKER_SIZE): Promise<HTMLCanvasElement> => {
+  return new Promise((resolve, reject) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    
+    if (!ctx) {
+      reject(new Error('Could not get canvas context'));
+      return;
+    }
+    
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      // Create circular clipping path
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2, true);
+      ctx.closePath();
+      ctx.clip();
+      
+      // Draw image
+      ctx.drawImage(img, 0, 0, size, size);
+      
+      // Add border
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2, true);
+      ctx.closePath();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.stroke();
+      
+      resolve(canvas);
+    };
+    
+    img.onerror = () => {
+      reject(new Error('Failed to load image'));
+    };
+    
+    img.src = imageUrl;
+  });
+};
+
+// Helper function to create a fallback marker when image loading fails
+const createFallbackMarker = (size: number = DEFAULT_MARKER_SIZE): HTMLCanvasElement => {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  
+  if (ctx) {
+    // Fill circle with orange color
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2, true);
+    ctx.closePath();
+    ctx.fillStyle = '#dd6b20';
+    ctx.fill();
+    
+    // Add border
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.stroke();
+  }
+  
+  return canvas;
+};
+
 export default function CesiumMapComponent({
   landmarks,
   humboldtCenter,
@@ -77,6 +149,7 @@ export default function CesiumMapComponent({
   const [landmarkPreviewUrls, setLandmarkPreviewUrls] = useState<{[id: string]: string}>({});
   const [previewUrlsLoading, setPreviewUrlsLoading] = useState<{[id: string]: boolean}>({});
   const [previewUrlsError, setPreviewUrlsError] = useState<{[id: string]: boolean}>({});
+  const [markerImages, setMarkerImages] = useState<{[id: string]: HTMLCanvasElement}>({});
 
   // 3. All useEffect hooks - make sure they're all declared unconditionally
   
@@ -99,22 +172,61 @@ export default function CesiumMapComponent({
     }
   }, [setErrorState]);
 
+  // Process preview images into circular markers
+  useEffect(() => {
+    async function processMarkerImages() {
+      const markerImagesMap: {[id: string]: HTMLCanvasElement} = {};
+      
+      for (const landmark of landmarks) {
+        if (landmark.previewUrl && landmarkPreviewUrls[landmark.id]) {
+          try {
+            const canvas = await createCircularImageCanvas(landmarkPreviewUrls[landmark.id]);
+            markerImagesMap[landmark.id] = canvas;
+          } catch (error) {
+            console.error(`Error creating circular image for ${landmark.id}:`, error);
+            markerImagesMap[landmark.id] = createFallbackMarker();
+          }
+        } else {
+          markerImagesMap[landmark.id] = createFallbackMarker();
+        }
+      }
+      
+      setMarkerImages(markerImagesMap);
+    }
+    
+    if (Object.keys(landmarkPreviewUrls).length > 0) {
+      processMarkerImages();
+    }
+  }, [landmarks, landmarkPreviewUrls]);
+
   // Create viewer once Cesium is loaded
   useEffect(() => {
     if (!cesium || !containerRef.current) return;
+
+    // Log the token to ensure it's loaded
+    console.log('Cesium Ion Token:', process.env.NEXT_PUBLIC_CESIUM_TOKEN); 
+    
+    if (!process.env.NEXT_PUBLIC_CESIUM_TOKEN) {
+      console.error("Cesium Ion Token is missing. Check .env.local and restart the server.");
+      setErrorState("Cesium Ion Token is missing.");
+      return; 
+    }
+    cesium.Ion.defaultAccessToken = process.env.NEXT_PUBLIC_CESIUM_TOKEN;
 
     try {
       // Create Cesium viewer
       const viewer = new cesium.Viewer(containerRef.current, {
         terrain: undefined,
+        // Temporarily use Cesium World Imagery (assetId: 2)
+        //baseLayer: new cesium.ImageryLayer(new cesium.IonImageryProvider({ assetId: 2 })),
         timeline: false,
         animation: false,
-        sceneModePicker: false,  // Changed from true to hide 3D/2D mode selector
-        baseLayerPicker: false,  // Changed from true to hide imagery/texture selector
+        sceneModePicker: false,  
+        baseLayerPicker: true,  // Keep this enabled
         navigationHelpButton: false,
-        homeButton: false,       // Changed from true to hide home button
-        geocoder: false,
-        fullscreenButton: true,  // Keeping fullscreen button
+        homeButton: false,       
+        geocoder: true,
+        fullscreenButton: false,  
         vrButton: false,
         navigationInstructionsInitiallyVisible: false,
         selectionIndicator: false,
@@ -125,6 +237,36 @@ export default function CesiumMapComponent({
       // Store viewer reference
       viewerRef.current = viewer;
 
+      // Reposition the baseLayerPicker to the middle-right
+      setTimeout(() => {
+        try {
+          // Find the baseLayerPicker element
+          const baseLayerPickerContainer = document.querySelector('.cesium-viewer .cesium-baseLayerPicker-dropDown');
+          
+          if (baseLayerPickerContainer && baseLayerPickerContainer.parentElement) {
+            // Modify the container style
+            const container = baseLayerPickerContainer.parentElement;
+            Object.assign(container.style, {
+              top: '15%',
+              right: '20px',
+              position: 'absolute',
+              zIndex: '35',
+              transition: 'transform 0.3s ease-in-out',
+              
+            });
+          }
+
+          const layerButton = document.querySelector('.cesium-viewer .cesium-toolbar-button')
+          if (layerButton) {
+            const button = layerButton as HTMLElement;
+            button.style.width = '50px';
+            button.style.height = '50px';}
+
+        } catch (error) {
+          console.warn("Error repositioning baseLayerPicker:", error);
+        }
+      }, 200); // Small delay to ensure DOM is ready
+      
       // Load terrain asynchronously
       cesium.createWorldTerrainAsync().then((terrainProvider: any) => {
         viewer.scene.terrainProvider = terrainProvider;
@@ -141,19 +283,23 @@ export default function CesiumMapComponent({
         viewer.scene.globe.depthTestAgainstTerrain = false;
       }
 
-      // Add landmarks directly using lat, lng, height
+      // Add landmarks as billboards using the processed images when available
       landmarks.forEach((landmark) => {
+        const fallbackCanvas = createFallbackMarker();
+
         const entity = new cesium.Entity({
-          position: cesium.Cartesian3.fromDegrees(landmark.lng, landmark.lat, landmark.height || 200), // Use height if provided or default to 200m
+          position: cesium.Cartesian3.fromDegrees(landmark.lng, landmark.lat, landmark.height || 200),
           name: landmark.name,
           id: landmark.id,
-          point: {
-            pixelSize: 15,
-            color: cesium.Color.fromCssColorString('#dd6b20'),
-            outlineColor: cesium.Color.BLACK,
-            outlineWidth: 2,
+          billboard: {
+            image: fallbackCanvas,  // Start with fallback, will update when real image is ready
+            width: DEFAULT_MARKER_SIZE,
+            height: DEFAULT_MARKER_SIZE,
             heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
-            disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined
+            disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined,
+            verticalOrigin: VerticalOrigin.BOTTOM,
+            horizontalOrigin: HorizontalOrigin.CENTER,
+            scale: 1.0,
           }
         });
 
@@ -186,6 +332,79 @@ export default function CesiumMapComponent({
         }
       }, cesium.ScreenSpaceEventType.LEFT_CLICK);
 
+      // Add hover effect handlers
+      const hoverHandler = new cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+      
+      // Mouse over handler for hover effect
+      hoverHandler.setInputAction((movement: any) => {
+        const pickedObject = viewer.scene.pick(movement.endPosition);
+        
+        if (cesium.defined(pickedObject) && pickedObject.id) {
+          const hoveredEntity = pickedObject.id;
+          
+          // Only apply hover effect if the entity is a landmark (has an id in our landmarks array)
+          const isLandmark = landmarks.some(landmark => landmark.id === hoveredEntity.id);
+          
+          if (isLandmark && hoveredEntity.billboard) {
+            // Skip if this is the selected landmark (already has special styling)
+            const isSelected = selectedLandmark && selectedLandmark.id === hoveredEntity.id;
+            if (!isSelected) {
+              // Store original scale if not already stored
+              if (!hoveredEntity._originalScale) {
+                hoveredEntity._originalScale = hoveredEntity.billboard.scale;
+                hoveredEntity._hoverActive = true;
+                
+                // Animate to hover state
+                hoveredEntity.billboard.scale = new cesium.CallbackProperty(() => {
+                  const time = viewer.clock.currentTime;
+                  const seconds = cesium.JulianDate.secondsDifference(time, viewer.clock.startTime);
+                  // Smooth animation over 0.3 seconds
+                  const t = Math.min(1, (seconds % 0.3) / 0.3);
+                  return cesium.Math.lerp(hoveredEntity._originalScale, 1.15, t);
+                }, false);
+                
+                // Add bright border using a different color
+                if (markerImages[hoveredEntity.id]) {
+                  // Create a copy of the canvas with hover effect
+                  createCircularImageCanvas(landmarkPreviewUrls[hoveredEntity.id] || '', DEFAULT_MARKER_SIZE)
+                    .then(hoverCanvas => {
+                      const ctx = hoverCanvas.getContext('2d');
+                      if (ctx) {
+                        // Add bright border
+                        ctx.beginPath();
+                        ctx.arc(DEFAULT_MARKER_SIZE/2, DEFAULT_MARKER_SIZE/2, DEFAULT_MARKER_SIZE/2 - 2, 0, Math.PI * 2);
+                        ctx.lineWidth = 3;
+                        ctx.strokeStyle = '#ffffff'; // Bright white border
+                        ctx.stroke();
+                      }
+                      hoveredEntity.billboard.image = hoverCanvas;
+                    });
+                }
+              }
+            }
+          }
+        } else {
+          // Reset all non-selected landmarks that had hover effects
+          viewer.entities.values.forEach((entity: any) => {
+            if (entity._hoverActive && entity.billboard && 
+                (!selectedLandmark || entity.id !== selectedLandmark.id)) {
+              // Remove hover properties and restore original appearance
+              entity._hoverActive = false;
+              
+              if (entity._originalScale) {
+                entity.billboard.scale = entity._originalScale;
+                delete entity._originalScale;
+                
+                // Restore original image if available
+                if (markerImages[entity.id]) {
+                  entity.billboard.image = markerImages[entity.id];
+                }
+              }
+            }
+          });
+        }
+      }, cesium.ScreenSpaceEventType.MOUSE_MOVE);
+      
       // Set up resize observer to handle responsive behavior
       const handleResize = () => {
         if (containerRef.current && viewer) {
@@ -232,6 +451,7 @@ export default function CesiumMapComponent({
           resizeObserver.disconnect();
         }
         clickHandler.destroy();
+        hoverHandler.destroy(); // Clean up hover handler
         if (viewer) {
           viewer.destroy();
         }
@@ -243,53 +463,94 @@ export default function CesiumMapComponent({
     // Remove selectedLandmark from the dependency array to prevent map reloading
   }, [cesium, containerRef, landmarks, humboldtCenter, setErrorState, setSelectedLandmark, preventPinOcclusion]);
 
+  // Update markers when marker images are processed
+  useEffect(() => {
+    if (!cesium || !viewerRef.current || Object.keys(markerImages).length === 0) return;
+    
+    // Update each entity with its corresponding marker image
+    Object.entries(markerImages).forEach(([id, canvas]) => {
+      const entity = entityRefs.current[id];
+      if (entity && entity.billboard) {
+        entity.billboard.image = canvas;
+      }
+    });
+  }, [markerImages, cesium]);
+
   // Effect to update landmark appearance when selection changes
   useEffect(() => {
     if (!cesium || !viewerRef.current) return;
     
     // Update the appearance of all landmarks
     Object.entries(entityRefs.current).forEach(([id, entity]) => {
-      if (entity) {
+      if (entity && entity.billboard) {
         const isSelected = selectedLandmark && selectedLandmark.id === id;
         
         if (isSelected) {
-          // Create aim-like appearance for selected landmark
-          entity.point = {
-            pixelSize: 12, // Slightly smaller center dot
-            color: cesium.Color.fromCssColorString('#ff3b00'),
-            outlineColor: cesium.Color.fromCssColorString('#00ff4c'), // Bright green aim outline
-            outlineWidth: 4,
-            heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
-            disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined
-          };
+          // Create selected appearance - larger with green border
+          if (markerImages[id]) {
+            // Try to create a larger version of the circular image with a green border
+            createCircularImageCanvas(landmarkPreviewUrls[id] || '', SELECTED_MARKER_SIZE)
+              .then(selectedCanvas => {
+                // Add green highlight ring
+                const ctx = selectedCanvas.getContext('2d');
+                if (ctx) {
+                  ctx.beginPath();
+                  ctx.arc(SELECTED_MARKER_SIZE/2, SELECTED_MARKER_SIZE/2, SELECTED_MARKER_SIZE/2 - 2, 0, Math.PI * 2);
+                  ctx.lineWidth = 4;
+                  ctx.strokeStyle = '#00ff4c';
+                  ctx.stroke();
+                }
+                
+                entity.billboard = {
+                  image: selectedCanvas,
+                  width: SELECTED_MARKER_SIZE,
+                  height: SELECTED_MARKER_SIZE,
+                  heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
+                  disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined,
+                  verticalOrigin: VerticalOrigin.BOTTOM,
+                  horizontalOrigin: HorizontalOrigin.CENTER,
+                  scale: 1.1
+                };
+              })
+              .catch(() => {
+                // Fallback if image processing fails
+                const canvas = createFallbackMarker(SELECTED_MARKER_SIZE);
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                  ctx.beginPath();
+                  ctx.arc(SELECTED_MARKER_SIZE/2, SELECTED_MARKER_SIZE/2, SELECTED_MARKER_SIZE/2 - 2, 0, Math.PI * 2);
+                  ctx.lineWidth = 4;
+                  ctx.strokeStyle = '#00ff4c';
+                  ctx.stroke();
+                }
+                
+                entity.billboard.image = canvas;
+                entity.billboard.width = SELECTED_MARKER_SIZE;
+                entity.billboard.height = SELECTED_MARKER_SIZE;
+                entity.billboard.scale = 1.1;
+              });
+          }
           
-          // Add a second larger point entity as the "aim ring" if it doesn't exist
-          if (!entityRefs.current[`${id}-aim`]) {
-            const aimRing = new cesium.Entity({
-              position: entity.position,
-              id: `${id}-aim`,
-              point: {
-                pixelSize: 28,
-                color: cesium.Color.fromAlpha(cesium.Color.BLACK, 0.0), // Transparent center
-                outlineColor: cesium.Color.fromCssColorString('#00ff4c'), // Bright green
-                outlineWidth: 2,
-                heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
-                disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined
-              }
-            });
-            viewerRef.current.entities.add(aimRing);
-            entityRefs.current[`${id}-aim`] = aimRing;
+          // Remove the aim ring if it was previously created
+          const aimRingId = `${id}-aim`;
+          if (entityRefs.current[aimRingId]) {
+            viewerRef.current.entities.remove(entityRefs.current[aimRingId]);
+            delete entityRefs.current[aimRingId];
           }
         } else {
           // Regular appearance for non-selected landmarks
-          entity.point = {
-            pixelSize: 15,
-            color: cesium.Color.fromCssColorString('#dd6b20'),
-            outlineColor: cesium.Color.BLACK,
-            outlineWidth: 2,
-            heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
-            disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined
-          };
+          if (markerImages[id]) {
+            entity.billboard = {
+              image: markerImages[id],
+              width: DEFAULT_MARKER_SIZE,
+              height: DEFAULT_MARKER_SIZE,
+              heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
+              disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined,
+              verticalOrigin: VerticalOrigin.BOTTOM,
+              horizontalOrigin: HorizontalOrigin.CENTER,
+              scale: 1.0
+            };
+          }
           
           // Remove the aim ring if it exists
           const aimRingId = `${id}-aim`;
@@ -300,7 +561,7 @@ export default function CesiumMapComponent({
         }
       }
     });
-  }, [selectedLandmark, cesium, viewerRef, preventPinOcclusion]);
+  }, [selectedLandmark, cesium, viewerRef, preventPinOcclusion, markerImages, landmarkPreviewUrls]);
 
   // Clean up aim rings when component unmounts
   useEffect(() => {
