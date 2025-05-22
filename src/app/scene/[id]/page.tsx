@@ -2,22 +2,12 @@ import React from 'react';
 import GSplatViewer from "@/components/GSplatViewer";
 import Link from "next/link";
 import landmarks from '@/data/landmarks.json';
+import { Landmark } from '@/types/landmarkTypes';
+import ToggleableInfoPanel from '@/components/ToggleableInfoPanel';
 
-// Update to use the correct landmark interface 
-interface Landmark {
-  id: string;
-  name: string;
-  lat: number;
-  lng: number;
-  height: number;
-  description: string;
-  gsplatUrl: string;
-  previewUrl?: string;
-}
-
-// Updated to handle params as a Promise
-export default async function ScenePage({ params }: { params: Promise<{ id: string }> }) {
-  // Await the params Promise to get the actual params object
+// Keep the component async to handle dynamic params correctly
+export default async function ScenePage({ params }: { params: { id: string } }) {
+  // Await params before accessing its properties
   const resolvedParams = await params;
   const { id } = resolvedParams;
 
@@ -36,26 +26,27 @@ export default async function ScenePage({ params }: { params: Promise<{ id: stri
   }
 
   return (
-    <main className="h-screen w-screen relative">
+    <main className="h-[100dvh] w-screen relative overflow-hidden">
       {/* Pass showLoadingPercentage prop to see loading progress */}
       <GSplatViewer 
         url={landmark.gsplatUrl} 
         showLoadingPercentage={true}
       />
       
-      <div className="absolute top-4 left-4 bg-black bg-opacity-70 p-4 rounded text-white max-w-md">
-        <h1 className="text-xl font-bold mb-2">{landmark.name}</h1>
-        <p className="mb-4 text-sm opacity-90">{landmark.description}</p>
-        <div className="flex items-center gap-3">
-          <Link href="/" className="text-blue-400 hover:underline text-sm flex items-center gap-1">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            Volver al mapa
-          </Link>
-        </div>
+      {/* Back to map button - moved to top-left corner */}
+      <div className="absolute top-4 left-4 z-50">
+        <Link href="/" className="flex items-center gap-2 bg-black bg-opacity-70 hover:bg-opacity-80 transition-all px-3 py-2 rounded-full text-white text-xs sm:text-sm">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 sm:h-4 sm:w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          </svg>
+          Volver al mapa
+        </Link>
       </div>
 
+      {/* Using the updated ToggleableInfoPanel with matching styling */}
+      <div className="fixed bottom-4 left-4 z-50 pb-safe">
+        <ToggleableInfoPanel landmark={landmark} />
+      </div>
     </main>
   );
 }

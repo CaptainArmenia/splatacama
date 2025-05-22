@@ -13,4 +13,3 @@ fs.copySync(cesiumPath, cesiumPublicPath, {
   filter: (src) => !src.includes('node_modules')
 });
 
-console.log('Cesium assets copied to public directory');

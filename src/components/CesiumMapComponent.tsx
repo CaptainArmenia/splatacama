@@ -49,12 +49,18 @@ const DEFAULT_CAMERA_CONFIG = {
   }
 };
 
-// Default marker size in pixels
+// Update constants - remove the SELECTED_MARKER_SIZE to use consistent size
 const DEFAULT_MARKER_SIZE = 40;
-const SELECTED_MARKER_SIZE = 50;
+
+// Define border styles for different states
+type BorderStyle = 'default' | 'hover' | 'selected';
 
 // Helper function to create circular image from preview URL
-const createCircularImageCanvas = (imageUrl: string, size: number = DEFAULT_MARKER_SIZE): Promise<HTMLCanvasElement> => {
+const createCircularImageCanvas = (
+  imageUrl: string, 
+  size: number = DEFAULT_MARKER_SIZE,
+  borderStyle: BorderStyle = 'default' // Support different border styles
+): Promise<HTMLCanvasElement> => {
   return new Promise((resolve, reject) => {
     const canvas = document.createElement('canvas');
     canvas.width = size;
@@ -78,14 +84,31 @@ const createCircularImageCanvas = (imageUrl: string, size: number = DEFAULT_MARK
       // Draw image
       ctx.drawImage(img, 0, 0, size, size);
       
-      // Add border
+      // Add border with style based on state
       ctx.beginPath();
-      ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2, true);
+      ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2, true);
       ctx.closePath();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#FFFFFF';
-      ctx.stroke();
       
+      // Apply border style based on state
+      switch (borderStyle) {
+        case 'selected':
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = '#00ff4c'; // Green for selected
+          break;
+        case 'hover':
+          ctx.lineWidth = 3.5;
+          ctx.strokeStyle = '#ffffff'; // Bright white for hover
+          
+          // Add glow effect for hover state
+          ctx.shadowBlur = 10;
+          ctx.shadowColor = '#ffffff';
+          break;
+        default:
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = '#FFFFFF'; // Standard white for default
+      }
+      
+      ctx.stroke();
       resolve(canvas);
     };
     
@@ -98,7 +121,10 @@ const createCircularImageCanvas = (imageUrl: string, size: number = DEFAULT_MARK
 };
 
 // Helper function to create a fallback marker when image loading fails
-const createFallbackMarker = (size: number = DEFAULT_MARKER_SIZE): HTMLCanvasElement => {
+const createFallbackMarker = (
+  size: number = DEFAULT_MARKER_SIZE,
+  borderStyle: BorderStyle = 'default' // Support different border styles
+): HTMLCanvasElement => {
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
@@ -112,9 +138,25 @@ const createFallbackMarker = (size: number = DEFAULT_MARKER_SIZE): HTMLCanvasEle
     ctx.fillStyle = '#dd6b20';
     ctx.fill();
     
-    // Add border
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = '#FFFFFF';
+    // Apply border style based on state
+    switch (borderStyle) {
+      case 'selected':
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = '#00ff4c'; // Green for selected
+        break;
+      case 'hover':
+        ctx.lineWidth = 3.5;
+        ctx.strokeStyle = '#ffffff'; // Bright white for hover
+        
+        // Add glow effect for hover state
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#ffffff';
+        break;
+      default:
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#FFFFFF'; // Standard white for default
+    }
+    
     ctx.stroke();
   }
   
@@ -203,29 +245,28 @@ export default function CesiumMapComponent({
   useEffect(() => {
     if (!cesium || !containerRef.current) return;
 
-    // Log the token to ensure it's loaded
-    console.log('Cesium Ion Token:', process.env.NEXT_PUBLIC_CESIUM_TOKEN); 
-    
-    if (!process.env.NEXT_PUBLIC_CESIUM_TOKEN) {
-      console.error("Cesium Ion Token is missing. Check .env.local and restart the server.");
-      setErrorState("Cesium Ion Token is missing.");
-      return; 
-    }
-    cesium.Ion.defaultAccessToken = process.env.NEXT_PUBLIC_CESIUM_TOKEN;
-
     try {
+      // Configure Cesium Ion token with better error handling
+      if (!process.env.NEXT_PUBLIC_CESIUM_TOKEN) {
+        console.error("Cesium Ion Token is missing. Check .env.local and restart the server.");
+        setErrorState("Cesium Ion Token is missing. Please configure it in your environment variables.");
+        return; 
+      }
+      
+      // Set the token and configure the default server
+      cesium.Ion.defaultAccessToken = process.env.NEXT_PUBLIC_CESIUM_TOKEN;
+      
       // Create Cesium viewer
       const viewer = new cesium.Viewer(containerRef.current, {
         terrain: undefined,
-        // Temporarily use Cesium World Imagery (assetId: 2)
-        //baseLayer: new cesium.ImageryLayer(new cesium.IonImageryProvider({ assetId: 2 })),
         timeline: false,
         animation: false,
         sceneModePicker: false,  
         baseLayerPicker: true,  // Keep this enabled
+        baseLayer: new cesium.ImageryLayer.fromProviderAsync(cesium.IonImageryProvider.fromAssetId(3954)),
         navigationHelpButton: false,
         homeButton: false,       
-        geocoder: true,
+        geocoder: false,
         fullscreenButton: false,  
         vrButton: false,
         navigationInstructionsInitiallyVisible: false,
@@ -237,14 +278,15 @@ export default function CesiumMapComponent({
       // Store viewer reference
       viewerRef.current = viewer;
 
-      // Reposition the baseLayerPicker to the middle-right
+      // Customize the baseLayerPicker to use a layer icon
       setTimeout(() => {
         try {
-          // Find the baseLayerPicker element
+          // Find the baseLayerPicker elements
           const baseLayerPickerContainer = document.querySelector('.cesium-viewer .cesium-baseLayerPicker-dropDown');
+          const layerButton = document.querySelector('.cesium-viewer .cesium-toolbar-button');
           
+          // Reposition the container
           if (baseLayerPickerContainer && baseLayerPickerContainer.parentElement) {
-            // Modify the container style
             const container = baseLayerPickerContainer.parentElement;
             Object.assign(container.style, {
               top: '15%',
@@ -252,18 +294,77 @@ export default function CesiumMapComponent({
               position: 'absolute',
               zIndex: '35',
               transition: 'transform 0.3s ease-in-out',
-              
             });
           }
 
-          const layerButton = document.querySelector('.cesium-viewer .cesium-toolbar-button')
+          // Replace the default button with a custom layer icon
           if (layerButton) {
             const button = layerButton as HTMLElement;
-            button.style.width = '50px';
-            button.style.height = '50px';}
+            
+            // Set button dimensions and style
+            Object.assign(button.style, {
+              width: '50px',
+              height: '50px',
+              background: 'rgba(0, 0, 0, 0.6)',
+              border: '2px solid rgba(255, 255, 255, 0.3)',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '0',
+              transition: 'all 0.2s ease',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+            });
+            
+            // Add hover effect
+            button.onmouseenter = () => {
+              button.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+              button.style.transform = 'translateY(-2px)';
+              button.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.5)';
+            };
+            
+            button.onmouseleave = () => {
+              button.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
+              button.style.transform = 'translateY(0)';
+              button.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.3)';
+            };
+            
+            // Clear existing content and add custom SVG icon
+            button.innerHTML = '';
+            const layerIcon = document.createElement('div');
+            layerIcon.innerHTML = `
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                <path d="M2 17l10 5 10-5"></path>
+                <path d="M2 12l10 5 10-5"></path>
+              </svg>
+            `;
+            button.appendChild(layerIcon);
+            
+            // Add tooltip/label
+            const tooltip = document.createElement('span');
+            tooltip.textContent = 'Cambiar mapa';
+            tooltip.style.cssText = 'position: absolute; background: rgba(0,0,0,0.8); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; white-space: nowrap; opacity: 0; transition: opacity 0.2s ease; right: 60px;';
+            
+            button.appendChild(tooltip);
+            
+            button.onmouseenter = (e) => {
+              button.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+              button.style.transform = 'translateY(-2px)';
+              button.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.5)';
+              tooltip.style.opacity = '1';
+            };
+            
+            button.onmouseleave = (e) => {
+              button.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
+              button.style.transform = 'translateY(0)';
+              button.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.3)';
+              tooltip.style.opacity = '0';
+            };
+          }
 
         } catch (error) {
-          console.warn("Error repositioning baseLayerPicker:", error);
+          console.warn("Error customizing baseLayerPicker:", error);
         }
       }, 200); // Small delay to ensure DOM is ready
       
@@ -349,35 +450,32 @@ export default function CesiumMapComponent({
             // Skip if this is the selected landmark (already has special styling)
             const isSelected = selectedLandmark && selectedLandmark.id === hoveredEntity.id;
             if (!isSelected) {
-              // Store original scale if not already stored
-              if (!hoveredEntity._originalScale) {
-                hoveredEntity._originalScale = hoveredEntity.billboard.scale;
+              // Mark hover active and apply scaling animation
+              if (!hoveredEntity._hoverActive) {
                 hoveredEntity._hoverActive = true;
                 
-                // Animate to hover state
+                // Store original scale to restore later
+                if (hoveredEntity.billboard.scale) {
+                  hoveredEntity._originalScale = hoveredEntity.billboard.scale.getValue();
+                } else {
+                  hoveredEntity._originalScale = 1.0;
+                }
+                
+                // Apply scale animation - grow slightly larger on hover
                 hoveredEntity.billboard.scale = new cesium.CallbackProperty(() => {
-                  const time = viewer.clock.currentTime;
-                  const seconds = cesium.JulianDate.secondsDifference(time, viewer.clock.startTime);
-                  // Smooth animation over 0.3 seconds
-                  const t = Math.min(1, (seconds % 0.3) / 0.3);
-                  return cesium.Math.lerp(hoveredEntity._originalScale, 1.15, t);
+                  // Calculate animated scale value between 1.0 and 1.15
+                  const pulseFactor = 1.15;
+                  return hoveredEntity._originalScale * pulseFactor;
                 }, false);
                 
-                // Add bright border using a different color
+                // Add bright border using a different color with glow effect
                 if (markerImages[hoveredEntity.id]) {
                   // Create a copy of the canvas with hover effect
-                  createCircularImageCanvas(landmarkPreviewUrls[hoveredEntity.id] || '', DEFAULT_MARKER_SIZE)
+                  createCircularImageCanvas(landmarkPreviewUrls[hoveredEntity.id] || '', DEFAULT_MARKER_SIZE, 'hover')
                     .then(hoverCanvas => {
-                      const ctx = hoverCanvas.getContext('2d');
-                      if (ctx) {
-                        // Add bright border
-                        ctx.beginPath();
-                        ctx.arc(DEFAULT_MARKER_SIZE/2, DEFAULT_MARKER_SIZE/2, DEFAULT_MARKER_SIZE/2 - 2, 0, Math.PI * 2);
-                        ctx.lineWidth = 3;
-                        ctx.strokeStyle = '#ffffff'; // Bright white border
-                        ctx.stroke();
+                      if (hoveredEntity._hoverActive) { // Check if still hovering
+                        hoveredEntity.billboard.image = hoverCanvas;
                       }
-                      hoveredEntity.billboard.image = hoverCanvas;
                     });
                 }
               }
@@ -391,14 +489,15 @@ export default function CesiumMapComponent({
               // Remove hover properties and restore original appearance
               entity._hoverActive = false;
               
-              if (entity._originalScale) {
+              // Restore original scale
+              if (entity._originalScale !== undefined) {
                 entity.billboard.scale = entity._originalScale;
-                delete entity._originalScale;
-                
-                // Restore original image if available
-                if (markerImages[entity.id]) {
-                  entity.billboard.image = markerImages[entity.id];
-                }
+                entity._originalScale = undefined;
+              }
+              
+              // Restore original image if available
+              if (markerImages[entity.id]) {
+                entity.billboard.image = markerImages[entity.id];
               }
             }
           });
@@ -486,48 +585,39 @@ export default function CesiumMapComponent({
         const isSelected = selectedLandmark && selectedLandmark.id === id;
         
         if (isSelected) {
-          // Create selected appearance - larger with green border
+          // Create selected appearance - with green border but same size
           if (markerImages[id]) {
-            // Try to create a larger version of the circular image with a green border
-            createCircularImageCanvas(landmarkPreviewUrls[id] || '', SELECTED_MARKER_SIZE)
+            // Create circular image with green border - keep same size as default
+            createCircularImageCanvas(landmarkPreviewUrls[id] || '', DEFAULT_MARKER_SIZE, 'selected')
               .then(selectedCanvas => {
                 // Add green highlight ring
                 const ctx = selectedCanvas.getContext('2d');
                 if (ctx) {
                   ctx.beginPath();
-                  ctx.arc(SELECTED_MARKER_SIZE/2, SELECTED_MARKER_SIZE/2, SELECTED_MARKER_SIZE/2 - 2, 0, Math.PI * 2);
+                  ctx.arc(DEFAULT_MARKER_SIZE/2, DEFAULT_MARKER_SIZE/2, DEFAULT_MARKER_SIZE/2 - 2, 0, Math.PI * 2);
                   ctx.lineWidth = 4;
                   ctx.strokeStyle = '#00ff4c';
                   ctx.stroke();
                 }
                 
-                entity.billboard = {
-                  image: selectedCanvas,
-                  width: SELECTED_MARKER_SIZE,
-                  height: SELECTED_MARKER_SIZE,
-                  heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
-                  disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined,
-                  verticalOrigin: VerticalOrigin.BOTTOM,
-                  horizontalOrigin: HorizontalOrigin.CENTER,
-                  scale: 1.1
-                };
+                // Keep the same size but update the image
+                entity.billboard.image = selectedCanvas;
+                // Don't change width, height or scale to keep consistent size
               })
               .catch(() => {
                 // Fallback if image processing fails
-                const canvas = createFallbackMarker(SELECTED_MARKER_SIZE);
+                const canvas = createFallbackMarker(DEFAULT_MARKER_SIZE, 'selected');
                 const ctx = canvas.getContext('2d');
                 if (ctx) {
                   ctx.beginPath();
-                  ctx.arc(SELECTED_MARKER_SIZE/2, SELECTED_MARKER_SIZE/2, SELECTED_MARKER_SIZE/2 - 2, 0, Math.PI * 2);
+                  ctx.arc(DEFAULT_MARKER_SIZE/2, DEFAULT_MARKER_SIZE/2, DEFAULT_MARKER_SIZE/2 - 2, 0, Math.PI * 2);
                   ctx.lineWidth = 4;
                   ctx.strokeStyle = '#00ff4c';
                   ctx.stroke();
                 }
                 
+                // Update only the image, not the size
                 entity.billboard.image = canvas;
-                entity.billboard.width = SELECTED_MARKER_SIZE;
-                entity.billboard.height = SELECTED_MARKER_SIZE;
-                entity.billboard.scale = 1.1;
               });
           }
           
@@ -540,16 +630,8 @@ export default function CesiumMapComponent({
         } else {
           // Regular appearance for non-selected landmarks
           if (markerImages[id]) {
-            entity.billboard = {
-              image: markerImages[id],
-              width: DEFAULT_MARKER_SIZE,
-              height: DEFAULT_MARKER_SIZE,
-              heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
-              disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined,
-              verticalOrigin: VerticalOrigin.BOTTOM,
-              horizontalOrigin: HorizontalOrigin.CENTER,
-              scale: 1.0
-            };
+            // Only update the image if needed, preserve other properties
+            entity.billboard.image = markerImages[id];
           }
           
           // Remove the aim ring if it exists
@@ -689,13 +771,13 @@ export default function CesiumMapComponent({
         <CesiumCompass viewer={viewerRef.current} cesium={cesium} />
       )}
       
-      {/* Enhanced landmark info panel with preview image - fixed to top-left */}
+      {/* Enhanced landmark info panel with preview image - now with consistent dark theme */}
       {selectedLandmark && (
-        <div className="absolute top-4 left-4 z-30 bg-white bg-opacity-95 rounded-lg shadow-xl max-w-xs md:max-w-sm border border-orange-200 overflow-hidden">
+        <div className="absolute top-4 left-4 z-30 bg-gray-900 bg-opacity-90 rounded-md shadow-md border border-gray-700 text-white overflow-hidden max-w-xs md:max-w-sm">
           {/* Close button - positioned absolutely in the corner */}
           <button 
             onClick={() => setSelectedLandmark(null)}
-            className="absolute top-2 right-2 z-50 bg-black bg-opacity-40 hover:bg-opacity-60 text-white rounded-full w-7 h-7 flex items-center justify-center transition-colors"
+            className="absolute top-2 right-2 z-50 bg-black bg-opacity-60 hover:bg-opacity-80 text-white rounded-full w-7 h-7 flex items-center justify-center transition-colors"
             aria-label="Cerrar"
           >
             <span className="sr-only">Cerrar</span>
@@ -704,15 +786,15 @@ export default function CesiumMapComponent({
             </svg>
           </button>
 
-          {/* Preview image at the top - modified with better loading and error states */}
+          {/* Preview image at the top - modified with dark theme border */}
           {selectedLandmark.previewUrl && (
-            <div className="w-full h-52 relative">
+            <div className="w-full h-52 relative border-b border-gray-700">
               {previewUrlsLoading[selectedLandmark.id] ? (
-                <div className="w-full h-full flex items-center justify-center bg-gray-100">
+                <div className="w-full h-full flex items-center justify-center bg-gray-800">
                   <div className="animate-pulse h-8 w-8 rounded-full border-4 border-orange-500 border-r-transparent" />
                 </div>
               ) : previewUrlsError[selectedLandmark.id] ? (
-                <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-500">
+                <div className="w-full h-full flex items-center justify-center bg-gray-800 text-gray-300">
                   <div className="text-center p-4">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mx-auto mb-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -731,8 +813,8 @@ export default function CesiumMapComponent({
                       setPreviewUrlsError(prev => ({...prev, [selectedLandmark.id]: true}));
                     }}
                   />
-                  <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-black/60 via-black/30 to-transparent flex items-start">
-                    <h3 className="font-bold text-xl text-white drop-shadow-md p-4">
+                  <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-start">
+                    <h3 className="font-bold text-xl text-white-400 drop-shadow-md p-4">
                       {selectedLandmark.name}
                     </h3>
                   </div>
@@ -741,20 +823,20 @@ export default function CesiumMapComponent({
             </div>
           )}
           
-          {/* Content area */}
-          <div className="p-4">
+          {/* Content area - now dark themed */}
+          <div className="p-3">
             {/* Show title only if no preview image */}
             {!selectedLandmark.previewUrl && (
-              <h3 className="font-bold text-xl text-gray-900 mb-2">{selectedLandmark.name}</h3>
+              <h3 className="font-bold text-lg text-orange-400 mb-2">{selectedLandmark.name}</h3>
             )}
             
             {/* Description */}
-            <p className="text-gray-700 leading-relaxed mb-4">{selectedLandmark.description}</p>
+            <p className="text-gray-200 text-sm leading-relaxed mb-3">{selectedLandmark.description}</p>
             
-            {/* View Scene Button - Centered and more prominent */}
+            {/* View Scene Button - Styled to match theme */}
             <div className="mt-2">
               <button
-                className="w-full px-4 py-2.5 bg-orange-600 text-white rounded-md hover:bg-orange-700 transition-colors font-medium flex items-center justify-center gap-2 shadow-sm"
+                className="w-full px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-md transition-colors font-medium flex items-center justify-center gap-2 text-sm border border-orange-700"
                 onClick={() => {
                   window.location.href = `/scene/${selectedLandmark.id}`;
                 }}

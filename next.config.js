@@ -25,7 +25,6 @@ const nextConfig = {
         const cesiumPaths = glob.sync('**/node_modules/.pnpm/cesium@*/node_modules/cesium');
         if (cesiumPaths.length > 0) {
           cesiumPath = path.resolve(cesiumPaths[0]);
-          console.log('Found Cesium at:', cesiumPath);
         } else {
           throw new Error('Could not find Cesium in pnpm store');
         }

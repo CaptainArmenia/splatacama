@@ -54,13 +54,6 @@ export async function loadCesium() {
         // Not failing completely since we can still use Cesium without styles
       }
     }
-    
-    // Log successful load with type-safe version access
-    console.log('Cesium loaded successfully:', 
-      typeof cesiumModule === 'object' && cesiumModule !== null && 'VERSION' in cesiumModule 
-        ? cesiumModule.VERSION 
-        : 'Version not available'
-    );
     return cesiumModule;
   } catch (error) {
     console.error('Failed to load Cesium:', error);
