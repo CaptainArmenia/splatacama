@@ -5,11 +5,9 @@ import landmarks from '@/data/landmarks.json';
 import { Landmark } from '@/types/landmarkTypes';
 import ToggleableInfoPanel from '@/components/ToggleableInfoPanel';
 
-// Keep the component async to handle dynamic params correctly
-export default async function ScenePage({ params }: { params: { id: string } }) {
-  // Await params before accessing its properties
-  const resolvedParams = await params;
-  const { id } = resolvedParams;
+// Use a non-async component for the page with explicit type annotation
+export default async function ScenePage({ params, searchParams }) {
+  const { id } = await params;
 
   // Type assertion using the correct interface
   const landmark = landmarks.find((l) => l.id === id) as Landmark | undefined;
