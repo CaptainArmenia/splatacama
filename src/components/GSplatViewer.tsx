@@ -28,8 +28,8 @@ export default function GSplatViewer({
     if (viewerRef.current) {
       try {
         // Define initial positions from the initialization parameters
-        const initialPosition = new THREE.Vector3(-1, -4, 6);
-        const initialLookAt = new THREE.Vector3(0, 4, 0);
+        const initialPosition = new THREE.Vector3(7, -2.5, 5);
+        const initialLookAt = new THREE.Vector3(0, 0, 0);
         
         // Access the camera and controls directly
         if (viewerRef.current.camera) {
