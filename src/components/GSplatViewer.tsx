@@ -106,8 +106,8 @@ export default function GSplatViewer({
         viewer = new GaussianSplats3D.Viewer({
           selfDrivenMode: true,
           cameraUp: [0, -1, 0],
-          initialCameraPosition: [-1, -4, 6],
-          initialCameraLookAt: [0, 4, 0],
+          initialCameraPosition: [7, -2.5, 5],
+          initialCameraLookAt: [0, 0, 0],
           rootElement: viewerContainer, // Use our dedicated container
           backgroundColor: color,
           // Enable the library's built-in loading indicator
