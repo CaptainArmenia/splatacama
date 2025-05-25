@@ -3,10 +3,8 @@
 import React from 'react';
 // Then import individual hooks separately
 import { useState, useRef, useEffect } from 'react';
-import { loadCesium } from '@/utils/cesiumLoader';
 import CesiumCompass from './CesiumCompass';
 import {
-  Cartesian3,
   HeightReference,
   HorizontalOrigin,
   VerticalOrigin,
@@ -53,13 +51,13 @@ const DEFAULT_CAMERA_CONFIG = {
 const DEFAULT_MARKER_SIZE = 40;
 
 // Define border styles for different states
-type BorderStyle = 'default' | 'hover' | 'selected';
+type BorderStyle = 'default' | 'selected';
 
 // Helper function to create circular image from preview URL
 const createCircularImageCanvas = (
   imageUrl: string, 
   size: number = DEFAULT_MARKER_SIZE,
-  borderStyle: BorderStyle = 'default' // Support different border styles
+  borderStyle: BorderStyle = 'default'
 ): Promise<HTMLCanvasElement> => {
   return new Promise((resolve, reject) => {
     const canvas = document.createElement('canvas');
@@ -84,28 +82,17 @@ const createCircularImageCanvas = (
       // Draw image
       ctx.drawImage(img, 0, 0, size, size);
       
-      // Add border with style based on state
+      // Add border
       ctx.beginPath();
       ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2, true);
       ctx.closePath();
       
-      // Apply border style based on state
-      switch (borderStyle) {
-        case 'selected':
-          ctx.lineWidth = 4;
-          ctx.strokeStyle = '#00ff4c'; // Green for selected
-          break;
-        case 'hover':
-          ctx.lineWidth = 3.5;
-          ctx.strokeStyle = '#ffffff'; // Bright white for hover
-          
-          // Add glow effect for hover state
-          ctx.shadowBlur = 10;
-          ctx.shadowColor = '#ffffff';
-          break;
-        default:
-          ctx.lineWidth = 3;
-          ctx.strokeStyle = '#FFFFFF'; // Standard white for default
+      if (borderStyle === 'selected') {
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = '#00ff4c'; // Green for selected
+      } else {
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#FFFFFF'; // White for default
       }
       
       ctx.stroke();
@@ -123,7 +110,7 @@ const createCircularImageCanvas = (
 // Helper function to create a fallback marker when image loading fails
 const createFallbackMarker = (
   size: number = DEFAULT_MARKER_SIZE,
-  borderStyle: BorderStyle = 'default' // Support different border styles
+  borderStyle: BorderStyle = 'default'
 ): HTMLCanvasElement => {
   const canvas = document.createElement('canvas');
   canvas.width = size;
@@ -138,23 +125,13 @@ const createFallbackMarker = (
     ctx.fillStyle = '#dd6b20';
     ctx.fill();
     
-    // Apply border style based on state
-    switch (borderStyle) {
-      case 'selected':
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = '#00ff4c'; // Green for selected
-        break;
-      case 'hover':
-        ctx.lineWidth = 3.5;
-        ctx.strokeStyle = '#ffffff'; // Bright white for hover
-        
-        // Add glow effect for hover state
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = '#ffffff';
-        break;
-      default:
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = '#FFFFFF'; // Standard white for default
+    // Add border
+    if (borderStyle === 'selected') {
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#00ff4c'; // Green for selected
+    } else {
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#FFFFFF'; // White for default
     }
     
     ctx.stroke();
@@ -169,15 +146,15 @@ export default function CesiumMapComponent({
   selectedLandmark,
   setSelectedLandmark,
   setErrorState,
-  showCameraPosition: initialShowCameraPosition, // Rename to indicate it's initial state
-  preventPinOcclusion, // Add this to function params
+  showCameraPosition: initialShowCameraPosition,
+  preventPinOcclusion,
 }: CesiumMapProps) {
-  // 1. All useRefs first - maintain consistent order
+  // Refs
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<any>(null);
   const entityRefs = useRef<{[id: string]: any}>({});
-  
-  // 2. All useState hooks
+
+  // State
   const [mapLoaded, setMapLoaded] = useState(false);
   const [cesium, setCesium] = useState<any>(null);
   const [showCameraPosition, setShowCameraPosition] = useState(initialShowCameraPosition);
@@ -191,10 +168,7 @@ export default function CesiumMapComponent({
   const [landmarkPreviewUrls, setLandmarkPreviewUrls] = useState<{[id: string]: string}>({});
   const [previewUrlsLoading, setPreviewUrlsLoading] = useState<{[id: string]: boolean}>({});
   const [previewUrlsError, setPreviewUrlsError] = useState<{[id: string]: boolean}>({});
-  const [markerImages, setMarkerImages] = useState<{[id: string]: HTMLCanvasElement}>({});
 
-  // 3. All useEffect hooks - make sure they're all declared unconditionally
-  
   // Load Cesium
   useEffect(() => {
     async function initCesium() {
@@ -213,33 +187,6 @@ export default function CesiumMapComponent({
       initCesium();
     }
   }, [setErrorState]);
-
-  // Process preview images into circular markers
-  useEffect(() => {
-    async function processMarkerImages() {
-      const markerImagesMap: {[id: string]: HTMLCanvasElement} = {};
-      
-      for (const landmark of landmarks) {
-        if (landmark.previewUrl && landmarkPreviewUrls[landmark.id]) {
-          try {
-            const canvas = await createCircularImageCanvas(landmarkPreviewUrls[landmark.id]);
-            markerImagesMap[landmark.id] = canvas;
-          } catch (error) {
-            console.error(`Error creating circular image for ${landmark.id}:`, error);
-            markerImagesMap[landmark.id] = createFallbackMarker();
-          }
-        } else {
-          markerImagesMap[landmark.id] = createFallbackMarker();
-        }
-      }
-      
-      setMarkerImages(markerImagesMap);
-    }
-    
-    if (Object.keys(landmarkPreviewUrls).length > 0) {
-      processMarkerImages();
-    }
-  }, [landmarks, landmarkPreviewUrls]);
 
   // Create viewer once Cesium is loaded
   useEffect(() => {
@@ -384,16 +331,14 @@ export default function CesiumMapComponent({
         viewer.scene.globe.depthTestAgainstTerrain = false;
       }
 
-      // Add landmarks as billboards using the processed images when available
+      // Add landmarks as billboards
       landmarks.forEach((landmark) => {
-        const fallbackCanvas = createFallbackMarker();
-
         const entity = new cesium.Entity({
           position: cesium.Cartesian3.fromDegrees(landmark.lng, landmark.lat, landmark.height || 200),
           name: landmark.name,
           id: landmark.id,
           billboard: {
-            image: fallbackCanvas,  // Start with fallback, will update when real image is ready
+            image: createFallbackMarker(), // Start with fallback
             width: DEFAULT_MARKER_SIZE,
             height: DEFAULT_MARKER_SIZE,
             heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
@@ -404,106 +349,27 @@ export default function CesiumMapComponent({
           }
         });
 
-        // Store entity reference for later styling updates
         entityRefs.current[landmark.id] = entity;
         viewer.entities.add(entity);
       });
 
-      // Implement custom click handler for smoother selection
+      // Click handler
       const clickHandler = new cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
       clickHandler.setInputAction((click: any) => {
-        // Try to pick an entity at the click position
         const pickedObject = viewer.scene.pick(click.position);
         
         if (cesium.defined(pickedObject) && pickedObject.id) {
-          // Entity was clicked
-          const clickedEntity = pickedObject.id;
-          const clickedLandmark = landmarks.find(landmark => landmark.id === clickedEntity.id);
+          const clickedLandmark = landmarks.find(landmark => landmark.id === pickedObject.id.id);
           
           if (clickedLandmark) {
-            // Prevent default zoom behavior
             click.preventDefault?.();
-            
-            // Set the selected landmark
             setSelectedLandmark(clickedLandmark);
           }
         } else {
-          // Clicked empty space - deselect current landmark
           setSelectedLandmark(null);
         }
       }, cesium.ScreenSpaceEventType.LEFT_CLICK);
 
-      // Add hover effect handlers
-      const hoverHandler = new cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-      
-      // Mouse over handler for hover effect
-      hoverHandler.setInputAction((movement: any) => {
-        const pickedObject = viewer.scene.pick(movement.endPosition);
-        
-        if (cesium.defined(pickedObject) && pickedObject.id) {
-          const hoveredEntity = pickedObject.id;
-          
-          // Only apply hover effect if the entity is a landmark (has an id in our landmarks array)
-          const isLandmark = landmarks.some(landmark => landmark.id === hoveredEntity.id);
-          
-          if (isLandmark && hoveredEntity.billboard) {
-            // Skip if this is the selected landmark (already has special styling)
-            const isSelected = selectedLandmark && selectedLandmark.id === hoveredEntity.id;
-            if (!isSelected) {
-              // Mark hover active and apply scaling animation
-              if (!hoveredEntity._hoverActive) {
-                hoveredEntity._hoverActive = true;
-                
-                // Store original scale to restore later
-                if (hoveredEntity.billboard.scale) {
-                  hoveredEntity._originalScale = hoveredEntity.billboard.scale.getValue();
-                } else {
-                  hoveredEntity._originalScale = 1.0;
-                }
-                
-                // Apply scale animation - grow slightly larger on hover
-                hoveredEntity.billboard.scale = new cesium.CallbackProperty(() => {
-                  // Calculate animated scale value between 1.0 and 1.15
-                  const pulseFactor = 1.15;
-                  return hoveredEntity._originalScale * pulseFactor;
-                }, false);
-                
-                // Add bright border using a different color with glow effect
-                if (markerImages[hoveredEntity.id]) {
-                  // Create a copy of the canvas with hover effect
-                  createCircularImageCanvas(landmarkPreviewUrls[hoveredEntity.id] || '', DEFAULT_MARKER_SIZE, 'hover')
-                    .then(hoverCanvas => {
-                      if (hoveredEntity._hoverActive) { // Check if still hovering
-                        hoveredEntity.billboard.image = hoverCanvas;
-                      }
-                    });
-                }
-              }
-            }
-          }
-        } else {
-          // Reset all non-selected landmarks that had hover effects
-          viewer.entities.values.forEach((entity: any) => {
-            if (entity._hoverActive && entity.billboard && 
-                (!selectedLandmark || entity.id !== selectedLandmark.id)) {
-              // Remove hover properties and restore original appearance
-              entity._hoverActive = false;
-              
-              // Restore original scale
-              if (entity._originalScale !== undefined) {
-                entity.billboard.scale = entity._originalScale;
-                entity._originalScale = undefined;
-              }
-              
-              // Restore original image if available
-              if (markerImages[entity.id]) {
-                entity.billboard.image = markerImages[entity.id];
-              }
-            }
-          });
-        }
-      }, cesium.ScreenSpaceEventType.MOUSE_MOVE);
-      
       // Set up resize observer to handle responsive behavior
       const handleResize = () => {
         if (containerRef.current && viewer) {
@@ -550,7 +416,6 @@ export default function CesiumMapComponent({
           resizeObserver.disconnect();
         }
         clickHandler.destroy();
-        hoverHandler.destroy(); // Clean up hover handler
         if (viewer) {
           viewer.destroy();
         }
@@ -562,101 +427,57 @@ export default function CesiumMapComponent({
     // Remove selectedLandmark from the dependency array to prevent map reloading
   }, [cesium, containerRef, landmarks, humboldtCenter, setErrorState, setSelectedLandmark, preventPinOcclusion]);
 
-  // Update markers when marker images are processed
-  useEffect(() => {
-    if (!cesium || !viewerRef.current || Object.keys(markerImages).length === 0) return;
+  // Create markers for all landmarks
+  const createMarkerForLandmark = async (landmark: MapLandmark, isSelected: boolean = false) => {
+    const borderStyle: BorderStyle = isSelected ? 'selected' : 'default';
     
-    // Update each entity with its corresponding marker image
-    Object.entries(markerImages).forEach(([id, canvas]) => {
-      const entity = entityRefs.current[id];
-      if (entity && entity.billboard) {
-        entity.billboard.image = canvas;
+    try {
+      if (landmark.previewUrl && landmarkPreviewUrls[landmark.id]) {
+        return await createCircularImageCanvas(landmarkPreviewUrls[landmark.id], DEFAULT_MARKER_SIZE, borderStyle);
+      } else {
+        return createFallbackMarker(DEFAULT_MARKER_SIZE, borderStyle);
       }
-    });
-  }, [markerImages, cesium]);
+    } catch (error) {
+      console.error(`Error creating marker for ${landmark.id}:`, error);
+      return createFallbackMarker(DEFAULT_MARKER_SIZE, borderStyle);
+    }
+  };
 
-  // Effect to update landmark appearance when selection changes
+  // Update all markers when preview URLs are loaded
+  useEffect(() => {
+    if (!cesium || !viewerRef.current || Object.keys(landmarkPreviewUrls).length === 0) return;
+    
+    const updateMarkers = async () => {
+      for (const landmark of landmarks) {
+        const entity = entityRefs.current[landmark.id];
+        if (entity && entity.billboard) {
+          const isSelected = selectedLandmark && selectedLandmark.id === landmark.id;
+          const markerCanvas = await createMarkerForLandmark(landmark, isSelected);
+          entity.billboard.image = markerCanvas;
+        }
+      }
+    };
+    
+    updateMarkers();
+  }, [cesium, landmarkPreviewUrls, landmarks, selectedLandmark]);
+
+  // Update marker appearance when selection changes
   useEffect(() => {
     if (!cesium || !viewerRef.current) return;
     
-    // Update the appearance of all landmarks
-    Object.entries(entityRefs.current).forEach(([id, entity]) => {
-      if (entity && entity.billboard) {
-        const isSelected = selectedLandmark && selectedLandmark.id === id;
-        
-        if (isSelected) {
-          // Create selected appearance - with green border but same size
-          if (markerImages[id]) {
-            // Create circular image with green border - keep same size as default
-            createCircularImageCanvas(landmarkPreviewUrls[id] || '', DEFAULT_MARKER_SIZE, 'selected')
-              .then(selectedCanvas => {
-                // Add green highlight ring
-                const ctx = selectedCanvas.getContext('2d');
-                if (ctx) {
-                  ctx.beginPath();
-                  ctx.arc(DEFAULT_MARKER_SIZE/2, DEFAULT_MARKER_SIZE/2, DEFAULT_MARKER_SIZE/2 - 2, 0, Math.PI * 2);
-                  ctx.lineWidth = 4;
-                  ctx.strokeStyle = '#00ff4c';
-                  ctx.stroke();
-                }
-                
-                // Keep the same size but update the image
-                entity.billboard.image = selectedCanvas;
-                // Don't change width, height or scale to keep consistent size
-              })
-              .catch(() => {
-                // Fallback if image processing fails
-                const canvas = createFallbackMarker(DEFAULT_MARKER_SIZE, 'selected');
-                const ctx = canvas.getContext('2d');
-                if (ctx) {
-                  ctx.beginPath();
-                  ctx.arc(DEFAULT_MARKER_SIZE/2, DEFAULT_MARKER_SIZE/2, DEFAULT_MARKER_SIZE/2 - 2, 0, Math.PI * 2);
-                  ctx.lineWidth = 4;
-                  ctx.strokeStyle = '#00ff4c';
-                  ctx.stroke();
-                }
-                
-                // Update only the image, not the size
-                entity.billboard.image = canvas;
-              });
-          }
-          
-          // Remove the aim ring if it was previously created
-          const aimRingId = `${id}-aim`;
-          if (entityRefs.current[aimRingId]) {
-            viewerRef.current.entities.remove(entityRefs.current[aimRingId]);
-            delete entityRefs.current[aimRingId];
-          }
-        } else {
-          // Regular appearance for non-selected landmarks
-          if (markerImages[id]) {
-            // Only update the image if needed, preserve other properties
-            entity.billboard.image = markerImages[id];
-          }
-          
-          // Remove the aim ring if it exists
-          const aimRingId = `${id}-aim`;
-          if (entityRefs.current[aimRingId]) {
-            viewerRef.current.entities.remove(entityRefs.current[aimRingId]);
-            delete entityRefs.current[aimRingId];
-          }
+    const updateSelectedMarker = async () => {
+      for (const landmark of landmarks) {
+        const entity = entityRefs.current[landmark.id];
+        if (entity && entity.billboard) {
+          const isSelected = selectedLandmark && selectedLandmark.id === landmark.id;
+          const markerCanvas = await createMarkerForLandmark(landmark, isSelected);
+          entity.billboard.image = markerCanvas;
         }
       }
-    });
-  }, [selectedLandmark, cesium, viewerRef, preventPinOcclusion, markerImages, landmarkPreviewUrls]);
-
-  // Clean up aim rings when component unmounts
-  useEffect(() => {
-    return () => {
-      if (viewerRef.current && cesium) {
-        Object.entries(entityRefs.current).forEach(([id, entity]) => {
-          if (id.endsWith('-aim')) {
-            viewerRef.current.entities.remove(entity);
-          }
-        });
-      }
     };
-  }, [cesium]);
+    
+    updateSelectedMarker();
+  }, [selectedLandmark, cesium, landmarkPreviewUrls, landmarks]);
 
   // Separate useEffect for camera position tracking
   useEffect(() => {
@@ -704,28 +525,17 @@ export default function CesiumMapComponent({
             loadingMap[landmark.id] = true;
             const url = await getBlobUrl(landmark.previewUrl);
             
-            // Verify the URL is accessible and returns an image
-            try {
-              const response = await fetch(url, { method: 'HEAD' });
-              const contentType = response.headers.get('content-type');
-              
-              if (response.ok && contentType && contentType.startsWith('image/')) {
-                previewUrlMap[landmark.id] = url;
-                errorMap[landmark.id] = false;
-              } else {
-                throw new Error(`Invalid content type: ${contentType}`);
-              }
-            } catch (fetchError) {
-              console.warn(`Error verifying image at ${url}:`, fetchError);
-              errorMap[landmark.id] = true;
-              
-              // Fall back to original URL as last resort
+            // No need to verify with fetch - let the browser handle it directly
+            previewUrlMap[landmark.id] = url;
+            errorMap[landmark.id] = false;
+          } catch (error) {
+            console.error(`Error constructing preview URL for ${landmark.id}:`, error);
+            errorMap[landmark.id] = true;
+            
+            // Fall back to original URL if blob URL construction fails
+            if (landmark.previewUrl) {
               previewUrlMap[landmark.id] = landmark.previewUrl;
             }
-          } catch (error) {
-            console.error(`Error fetching preview URL for ${landmark.id}:`, error);
-            errorMap[landmark.id] = true;
-            previewUrlMap[landmark.id] = landmark.previewUrl; // Fall back to original URL
           } finally {
             loadingMap[landmark.id] = false;
           }

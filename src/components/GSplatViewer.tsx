@@ -228,8 +228,12 @@ export default function GSplatViewer({
   return (
     <div 
       ref={containerRef}
-      className="relative h-full w-full rounded-lg overflow-hidden shadow-lg"
-      style={{ backgroundColor }}
+      className="relative h-full w-full rounded-lg overflow-hidden shadow-lg max-h-screen md:max-h-full"
+      style={{ 
+        backgroundColor,
+        height: 'min(100%, 100vh)',
+        maxHeight: '100vh'
+      }}
     >
       {/* Remove our custom loading indicator, we're using the library's built-in one */}
       
