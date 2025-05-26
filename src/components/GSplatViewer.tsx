@@ -115,6 +115,8 @@ export default function GSplatViewer({
           showLoadingProgressBar: true,
           gpuAcceleratedSort: false,
           sharedMemoryForWorkers: false,
+          // Enable touch controls for mobile
+          enablePointerLock: false,
           // Only enable WebXR if the environment is compatible
           webXRMode: isXRCompatible ? GaussianSplats3D.WebXRMode.VR : GaussianSplats3D.WebXRMode.NONE,
         });
@@ -232,7 +234,11 @@ export default function GSplatViewer({
       style={{ 
         backgroundColor,
         height: 'min(100%, 100vh)',
-        maxHeight: '100vh'
+        maxHeight: '100vh',
+        touchAction: 'none', // Prevent default touch behaviors that interfere with camera controls
+        userSelect: 'none',  // Prevent text selection on touch
+        WebkitUserSelect: 'none',
+        WebkitTouchCallout: 'none'
       }}
     >
       {/* Remove our custom loading indicator, we're using the library's built-in one */}
