@@ -85,7 +85,7 @@ const createCircularImageCanvas = (
       ctx.beginPath();
       ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2, true);
       ctx.closePath();
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 1;
       ctx.strokeStyle = '#FFFFFF';
       ctx.stroke();
       
@@ -116,7 +116,7 @@ const createFallbackMarker = (size: number = DEFAULT_MARKER_SIZE): HTMLCanvasEle
     ctx.fill();
     
     // Add white border
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2;
     ctx.strokeStyle = '#FFFFFF';
     ctx.stroke();
   }
@@ -205,7 +205,7 @@ export default function CesiumMapComponent({
         fullscreenButton: false,  
         vrButton: false,
         navigationInstructionsInitiallyVisible: false,
-        selectionIndicator: false,
+        selectionIndicator: true, // Enable selection indicator
         infoBox: false,
         creditContainer: document.createElement('div'), // Hide credits
       });
@@ -331,9 +331,10 @@ export default function CesiumMapComponent({
             height: DEFAULT_MARKER_SIZE,
             heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
             disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined,
-            verticalOrigin: VerticalOrigin.BOTTOM,
+            verticalOrigin: VerticalOrigin.CENTER, // Change from BOTTOM to CENTER
             horizontalOrigin: HorizontalOrigin.CENTER,
             scale: 1.0,
+            eyeOffset: new cesium.Cartesian3(0, 0, -50) // Optional: slight offset to avoid z-fighting
           }
         });
 
@@ -460,13 +461,20 @@ export default function CesiumMapComponent({
     // Use Cesium's built-in properties for visual feedback
     if (isSelected) {
       entity.billboard.scale = 1.2;
-      entity.billboard.color = cesium.Color.CYAN; // Blue tint for selected
+      // Set the entity as selected to show the green selection indicator
+      viewerRef.current.selectedEntity = entity;
     } else if (isHovered) {
       entity.billboard.scale = 1.1;
-      entity.billboard.color = cesium.Color.LIME; // Green tint for hover
+      // Clear selection if this was the previously selected entity
+      if (viewerRef.current.selectedEntity === entity) {
+        viewerRef.current.selectedEntity = undefined;
+      }
     } else {
       entity.billboard.scale = 1.0;
-      entity.billboard.color = cesium.Color.WHITE; // Default state
+      // Clear selection if this was the previously selected entity
+      if (viewerRef.current.selectedEntity === entity) {
+        viewerRef.current.selectedEntity = undefined;
+      }
     }
   };
 
