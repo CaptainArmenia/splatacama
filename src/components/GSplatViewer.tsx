@@ -129,8 +129,8 @@ export default function GSplatViewer({
           {
             path: splatFileUrl,
             position: [0, 0, 0],
-            rotation: isXRCompatible ? new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI, 0, 0)).toArray() :  [0, 0, 0, 1],  // Quaternion format [x,y,z,w]
-            scale: isXRCompatible ? [4, 4, 4] : [10, 10, 10],
+            rotation: [0, 0, 0, 1],// isXRCompatible ? new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI, 0, 0)).toArray() :  [0, 0, 0, 1],  // Quaternion format [x,y,z,w]
+            scale: [10, 10, 10]//isXRCompatible ? [4, 4, 4] : [10, 10, 10],
           }
         ];
 
