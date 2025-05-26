@@ -118,7 +118,7 @@ export default function GSplatViewer({
           // Enable touch controls for mobile
           enablePointerLock: false,
           // Only enable WebXR if the environment is compatible
-          webXRMode: isXRCompatible ? GaussianSplats3D.WebXRMode.VR : GaussianSplats3D.WebXRMode.NONE,
+          webXRMode: GaussianSplats3D.WebXRMode.NONE,
         });
         
         // Store reference to viewer
