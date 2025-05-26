@@ -53,48 +53,85 @@ const DEFAULT_MARKER_SIZE = 40;
 // Define border styles for different states
 type BorderStyle = 'default' | 'selected' | 'hover';
 
-// Helper function to create circular image from preview URL - simplified to one border style
+// Helper function to create circular image from preview URL - robust CORS handling
 const createCircularImageCanvas = (
   imageUrl: string, 
   size: number = DEFAULT_MARKER_SIZE
 ): Promise<HTMLCanvasElement> => {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext('2d');
     
     if (!ctx) {
-      reject(new Error('Could not get canvas context'));
+      console.warn('Could not get canvas context, using fallback');
+      resolve(createFallbackMarker(size));
       return;
     }
     
     const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      // Create circular clipping path
-      ctx.beginPath();
-      ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2, true);
-      ctx.closePath();
-      ctx.clip();
-      
-      // Draw image
-      ctx.drawImage(img, 0, 0, size, size);
-      
-      // Add simple white border
-      ctx.beginPath();
-      ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2, true);
-      ctx.closePath();
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = '#FFFFFF';
-      ctx.stroke();
-      
-      resolve(canvas);
+    
+    const drawImageToCanvas = () => {
+      try {
+        // Create circular clipping path
+        ctx.beginPath();
+        ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2, true);
+        ctx.closePath();
+        ctx.clip();
+        
+        // Draw image
+        ctx.drawImage(img, 0, 0, size, size);
+        
+        // Add simple white border
+        ctx.beginPath();
+        ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2, true);
+        ctx.closePath();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.stroke();
+        
+        resolve(canvas);
+      } catch (error) {
+        console.warn('Canvas drawing error, using fallback:', error);
+        resolve(createFallbackMarker(size));
+      }
     };
     
+    // Set up error handler first
     img.onerror = () => {
-      reject(new Error('Failed to load image'));
+      console.warn('Image load failed, using fallback for:', imageUrl);
+      resolve(createFallbackMarker(size));
     };
+    
+    // Set up success handler
+    img.onload = drawImageToCanvas;
+    
+    // Try to load with CORS first for R2 images
+    if (imageUrl.includes('r2.dev') || imageUrl.includes('cloudflare')) {
+      img.crossOrigin = 'anonymous';
+      
+      // Add a timeout fallback for CORS requests
+      const corsTimeout = setTimeout(() => {
+        console.warn('CORS request timed out, using fallback for:', imageUrl);
+        img.src = ''; // Cancel the request
+        resolve(createFallbackMarker(size));
+      }, 5000); // 5 second timeout
+      
+      // Store original handlers and clear timeout on completion
+      const originalOnload = img.onload;
+      const originalOnerror = img.onerror;
+      
+      img.onload = (ev: Event) => {
+        clearTimeout(corsTimeout);
+        if (originalOnload) originalOnload.call(img, ev);
+      };
+      
+      img.onerror = (ev: Event | string) => {
+        clearTimeout(corsTimeout);
+        if (originalOnerror) originalOnerror.call(img, ev);
+      };
+    }
     
     img.src = imageUrl;
   });
