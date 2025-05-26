@@ -51,13 +51,12 @@ const DEFAULT_CAMERA_CONFIG = {
 const DEFAULT_MARKER_SIZE = 40;
 
 // Define border styles for different states
-type BorderStyle = 'default' | 'selected';
+type BorderStyle = 'default' | 'selected' | 'hover';
 
-// Helper function to create circular image from preview URL
+// Helper function to create circular image from preview URL - simplified to one border style
 const createCircularImageCanvas = (
   imageUrl: string, 
-  size: number = DEFAULT_MARKER_SIZE,
-  borderStyle: BorderStyle = 'default'
+  size: number = DEFAULT_MARKER_SIZE
 ): Promise<HTMLCanvasElement> => {
   return new Promise((resolve, reject) => {
     const canvas = document.createElement('canvas');
@@ -82,20 +81,14 @@ const createCircularImageCanvas = (
       // Draw image
       ctx.drawImage(img, 0, 0, size, size);
       
-      // Add border
+      // Add simple white border
       ctx.beginPath();
       ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2, true);
       ctx.closePath();
-      
-      if (borderStyle === 'selected') {
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = '#00ff4c'; // Green for selected
-      } else {
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = '#FFFFFF'; // White for default
-      }
-      
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#FFFFFF';
       ctx.stroke();
+      
       resolve(canvas);
     };
     
@@ -107,11 +100,8 @@ const createCircularImageCanvas = (
   });
 };
 
-// Helper function to create a fallback marker when image loading fails
-const createFallbackMarker = (
-  size: number = DEFAULT_MARKER_SIZE,
-  borderStyle: BorderStyle = 'default'
-): HTMLCanvasElement => {
+// Helper function to create a fallback marker - simplified
+const createFallbackMarker = (size: number = DEFAULT_MARKER_SIZE): HTMLCanvasElement => {
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
@@ -125,15 +115,9 @@ const createFallbackMarker = (
     ctx.fillStyle = '#dd6b20';
     ctx.fill();
     
-    // Add border
-    if (borderStyle === 'selected') {
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = '#00ff4c'; // Green for selected
-    } else {
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#FFFFFF'; // White for default
-    }
-    
+    // Add white border
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#FFFFFF';
     ctx.stroke();
   }
   
@@ -158,6 +142,7 @@ export default function CesiumMapComponent({
   const [mapLoaded, setMapLoaded] = useState(false);
   const [cesium, setCesium] = useState<any>(null);
   const [showCameraPosition, setShowCameraPosition] = useState(initialShowCameraPosition);
+  const [hoveredLandmark, setHoveredLandmark] = useState<MapLandmark | null>(null);
   const [cameraPosition, setCameraPosition] = useState({
     latitude: 0,
     longitude: 0,
@@ -168,6 +153,9 @@ export default function CesiumMapComponent({
   const [landmarkPreviewUrls, setLandmarkPreviewUrls] = useState<{[id: string]: string}>({});
   const [previewUrlsLoading, setPreviewUrlsLoading] = useState<{[id: string]: boolean}>({});
   const [previewUrlsError, setPreviewUrlsError] = useState<{[id: string]: boolean}>({});
+
+  // Add canvas cache to prevent flickering
+  const canvasCache = useRef<{[key: string]: HTMLCanvasElement}>({});
 
   // Load Cesium
   useEffect(() => {
@@ -370,6 +358,27 @@ export default function CesiumMapComponent({
         }
       }, cesium.ScreenSpaceEventType.LEFT_CLICK);
 
+      // Hover handler
+      const hoverHandler = new cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+      hoverHandler.setInputAction((movement: any) => {
+        const pickedObject = viewer.scene.pick(movement.endPosition);
+        
+        if (cesium.defined(pickedObject) && pickedObject.id) {
+          const hoveredLandmarkData = landmarks.find(landmark => landmark.id === pickedObject.id.id);
+          
+          if (hoveredLandmarkData) {
+            setHoveredLandmark(hoveredLandmarkData);
+            document.body.style.cursor = 'pointer';
+          } else {
+            setHoveredLandmark(null);
+            document.body.style.cursor = 'default';
+          }
+        } else {
+          setHoveredLandmark(null);
+          document.body.style.cursor = 'default';
+        }
+      }, cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
       // Set up resize observer to handle responsive behavior
       const handleResize = () => {
         if (containerRef.current && viewer) {
@@ -416,6 +425,8 @@ export default function CesiumMapComponent({
           resizeObserver.disconnect();
         }
         clickHandler.destroy();
+        hoverHandler.destroy();
+        document.body.style.cursor = 'default'; // Reset cursor on cleanup
         if (viewer) {
           viewer.destroy();
         }
@@ -427,57 +438,153 @@ export default function CesiumMapComponent({
     // Remove selectedLandmark from the dependency array to prevent map reloading
   }, [cesium, containerRef, landmarks, humboldtCenter, setErrorState, setSelectedLandmark, preventPinOcclusion]);
 
-  // Create markers for all landmarks
-  const createMarkerForLandmark = async (landmark: MapLandmark, isSelected: boolean = false) => {
-    const borderStyle: BorderStyle = isSelected ? 'selected' : 'default';
+  // Track previous states to detect changes
+  const prevSelectedLandmarkRef = useRef<MapLandmark | null>(null);
+  const prevHoveredLandmarkRef = useRef<MapLandmark | null>(null);
+
+  // Helper function to get cache key - simplified since we only cache one version
+  const getCacheKey = (landmarkId: string, hasPreviewImage: boolean): string => {
+    return `${landmarkId}_${hasPreviewImage ? 'img' : 'fallback'}`;
+  };
+
+  // Update visual state using Cesium properties instead of recreating canvas
+  const updateLandmarkVisualState = (landmark: MapLandmark) => {
+    if (!cesium || !viewerRef.current) return;
     
-    try {
-      if (landmark.previewUrl && landmarkPreviewUrls[landmark.id]) {
-        return await createCircularImageCanvas(landmarkPreviewUrls[landmark.id], DEFAULT_MARKER_SIZE, borderStyle);
-      } else {
-        return createFallbackMarker(DEFAULT_MARKER_SIZE, borderStyle);
-      }
-    } catch (error) {
-      console.error(`Error creating marker for ${landmark.id}:`, error);
-      return createFallbackMarker(DEFAULT_MARKER_SIZE, borderStyle);
+    const entity = entityRefs.current[landmark.id];
+    if (!entity || !entity.billboard) return;
+
+    const isSelected = selectedLandmark && selectedLandmark.id === landmark.id;
+    const isHovered = hoveredLandmark && hoveredLandmark.id === landmark.id;
+
+    // Use Cesium's built-in properties for visual feedback
+    if (isSelected) {
+      entity.billboard.scale = 1.2;
+      entity.billboard.color = cesium.Color.CYAN; // Blue tint for selected
+    } else if (isHovered) {
+      entity.billboard.scale = 1.1;
+      entity.billboard.color = cesium.Color.LIME; // Green tint for hover
+    } else {
+      entity.billboard.scale = 1.0;
+      entity.billboard.color = cesium.Color.WHITE; // Default state
     }
   };
 
-  // Update all markers when preview URLs are loaded
-  useEffect(() => {
-    if (!cesium || !viewerRef.current || Object.keys(landmarkPreviewUrls).length === 0) return;
+  // Simplified marker update - only loads image once
+  const updateSpecificLandmarkMarker = async (landmark: MapLandmark) => {
+    if (!cesium || !viewerRef.current) return;
     
-    const updateMarkers = async () => {
-      for (const landmark of landmarks) {
-        const entity = entityRefs.current[landmark.id];
-        if (entity && entity.billboard) {
-          const isSelected = selectedLandmark && selectedLandmark.id === landmark.id;
-          const markerCanvas = await createMarkerForLandmark(landmark, isSelected);
-          entity.billboard.image = markerCanvas;
-        }
-      }
-    };
-    
-    updateMarkers();
-  }, [cesium, landmarkPreviewUrls, landmarks, selectedLandmark]);
+    const entity = entityRefs.current[landmark.id];
+    if (!entity || !entity.billboard) return;
 
-  // Update marker appearance when selection changes
+    const hasPreviewImage = !!(landmark.previewUrl && landmarkPreviewUrls[landmark.id]);
+    const cacheKey = getCacheKey(landmark.id, hasPreviewImage);
+
+    // Check if we already have the base canvas cached
+    if (canvasCache.current[cacheKey]) {
+      entity.billboard.image = canvasCache.current[cacheKey];
+      updateLandmarkVisualState(landmark); // Apply visual state
+      return;
+    }
+
+    // Create new canvas only if not cached
+    try {
+      let markerCanvas: HTMLCanvasElement;
+      
+      if (hasPreviewImage) {
+        markerCanvas = await createCircularImageCanvas(
+          landmarkPreviewUrls[landmark.id], 
+          DEFAULT_MARKER_SIZE
+        );
+      } else {
+        markerCanvas = createFallbackMarker(DEFAULT_MARKER_SIZE);
+      }
+
+      // Cache the canvas
+      canvasCache.current[cacheKey] = markerCanvas;
+      
+      // Only update if the entity still exists
+      if (entity.billboard && entityRefs.current[landmark.id] === entity) {
+        entity.billboard.image = markerCanvas;
+        updateLandmarkVisualState(landmark); // Apply visual state
+      }
+    } catch (error) {
+      console.error(`Error creating marker for ${landmark.id}:`, error);
+      
+      // Use fallback and cache it
+      const fallbackKey = getCacheKey(landmark.id, false);
+      if (!canvasCache.current[fallbackKey]) {
+        canvasCache.current[fallbackKey] = createFallbackMarker(DEFAULT_MARKER_SIZE);
+      }
+      
+      if (entity.billboard && entityRefs.current[landmark.id] === entity) {
+        entity.billboard.image = canvasCache.current[fallbackKey];
+        updateLandmarkVisualState(landmark); // Apply visual state
+      }
+    }
+  };
+
+  // Optimized useEffect that only updates visual states
+  useEffect(() => {
+    if (!cesium || !viewerRef.current) return;
+
+    const landmarksToUpdate = new Set<MapLandmark>();
+
+    // Check if selected landmark changed
+    if (prevSelectedLandmarkRef.current !== selectedLandmark) {
+      if (prevSelectedLandmarkRef.current) {
+        landmarksToUpdate.add(prevSelectedLandmarkRef.current);
+      }
+      if (selectedLandmark) {
+        landmarksToUpdate.add(selectedLandmark);
+      }
+      prevSelectedLandmarkRef.current = selectedLandmark;
+    }
+
+    // Check if hovered landmark changed
+    if (prevHoveredLandmarkRef.current !== hoveredLandmark) {
+      if (prevHoveredLandmarkRef.current) {
+        landmarksToUpdate.add(prevHoveredLandmarkRef.current);
+      }
+      if (hoveredLandmark) {
+        landmarksToUpdate.add(hoveredLandmark);
+      }
+      prevHoveredLandmarkRef.current = hoveredLandmark;
+    }
+
+    // Update visual states immediately - no async operations needed
+    landmarksToUpdate.forEach(landmark => {
+      updateLandmarkVisualState(landmark);
+    });
+  }, [cesium, selectedLandmark, hoveredLandmark]);
+
+  // Separate useEffect for initial marker loading when preview URLs change
   useEffect(() => {
     if (!cesium || !viewerRef.current) return;
     
-    const updateSelectedMarker = async () => {
-      for (const landmark of landmarks) {
-        const entity = entityRefs.current[landmark.id];
-        if (entity && entity.billboard) {
-          const isSelected = selectedLandmark && selectedLandmark.id === landmark.id;
-          const markerCanvas = await createMarkerForLandmark(landmark, isSelected);
-          entity.billboard.image = markerCanvas;
-        }
+    // Update all landmarks when preview URLs change
+    landmarks.forEach(landmark => {
+      if (landmarkPreviewUrls[landmark.id]) {
+        // Clear old cache entries for this landmark to force recreation with new image
+        Object.keys(canvasCache.current).forEach(key => {
+          if (key.startsWith(`${landmark.id}_`)) {
+            delete canvasCache.current[key];
+          }
+        });
+        updateSpecificLandmarkMarker(landmark);
       }
-    };
+    });
+  }, [landmarkPreviewUrls, landmarks]);
+
+  // Add useEffect to initially load all markers after Cesium is ready
+  useEffect(() => {
+    if (!cesium || !viewerRef.current || !mapLoaded) return;
     
-    updateSelectedMarker();
-  }, [selectedLandmark, cesium, landmarkPreviewUrls, landmarks]);
+    // Load initial markers for all landmarks
+    landmarks.forEach(landmark => {
+      updateSpecificLandmarkMarker(landmark);
+    });
+  }, [cesium, mapLoaded, landmarks]);
 
   // Separate useEffect for camera position tracking
   useEffect(() => {
