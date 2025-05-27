@@ -98,41 +98,54 @@ const createCircularImageCanvas = (
       }
     };
     
-    // Set up error handler first
+    // Track if we've already resolved to prevent multiple resolutions
+    let isResolved = false;
+    
+    const resolveOnce = (canvas: HTMLCanvasElement) => {
+      if (!isResolved) {
+        isResolved = true;
+        resolve(canvas);
+      }
+    };
+    
+    // Set up error handler - immediately use fallback on any error
     img.onerror = () => {
-      console.warn('Image load failed, using fallback for:', imageUrl);
-      resolve(createFallbackMarker(size));
+      console.warn('CORS image load failed, using fallback for:', imageUrl);
+      resolveOnce(createFallbackMarker(size));
     };
     
     // Set up success handler
-    img.onload = drawImageToCanvas;
+    img.onload = () => {
+      if (!isResolved) {
+        drawImageToCanvas();
+      }
+    };
     
-    // Try to load with CORS first for R2 images
-    if (imageUrl.includes('r2.dev') || imageUrl.includes('cloudflare')) {
-      img.crossOrigin = 'anonymous';
-      
-      // Add a timeout fallback for CORS requests
-      const corsTimeout = setTimeout(() => {
-        console.warn('CORS request timed out, using fallback for:', imageUrl);
+    // Add timeout for image loading
+    const loadTimeout = setTimeout(() => {
+      if (!isResolved) {
+        console.warn('Image load timed out, using fallback for:', imageUrl);
         img.src = ''; // Cancel the request
-        resolve(createFallbackMarker(size));
-      }, 5000); // 5 second timeout
-      
-      // Store original handlers and clear timeout on completion
-      const originalOnload = img.onload;
-      const originalOnerror = img.onerror;
-      
-      img.onload = (ev: Event) => {
-        clearTimeout(corsTimeout);
-        if (originalOnload) originalOnload.call(img, ev);
-      };
-      
-      img.onerror = (ev: Event | string) => {
-        clearTimeout(corsTimeout);
-        if (originalOnerror) originalOnerror.call(img, ev);
-      };
-    }
+        resolveOnce(createFallbackMarker(size));
+      }
+    }, 5000); // 5 second timeout
     
+    // Clear timeout on completion
+    const originalOnload = img.onload;
+    const originalOnerror = img.onerror;
+    
+    img.onload = (ev: Event) => {
+      clearTimeout(loadTimeout);
+      if (originalOnload) originalOnload.call(img, ev);
+    };
+    
+    img.onerror = (ev: Event | string) => {
+      clearTimeout(loadTimeout);
+      if (originalOnerror) originalOnerror.call(img, ev);
+    };
+    
+    // Always use CORS to prevent canvas tainting - if it fails, we use fallback
+    img.crossOrigin = 'anonymous';
     img.src = imageUrl;
   });
 };
