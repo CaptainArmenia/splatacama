@@ -196,12 +196,11 @@ export default function GSplatViewer({
             }
           }
           
-          // Clear all internal state of the viewer without relying on its dispose method
+          // Gentle cleanup without forcing context loss
           if (viewerRef.current.renderer) {
             try {
-              // Remove any WebGL resources
+              // Dispose resources but don't force context loss
               viewerRef.current.renderer.dispose();
-              viewerRef.current.renderer.forceContextLoss();
               viewerRef.current.renderer = null;
             } catch (e) {
               console.error("Error disposing renderer:", e);

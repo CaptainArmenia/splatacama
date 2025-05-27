@@ -98,35 +98,21 @@ const createCircularImageCanvas = (
       }
     };
     
-    // Track if we've already resolved to prevent multiple resolutions
-    let isResolved = false;
-    
-    const resolveOnce = (canvas: HTMLCanvasElement) => {
-      if (!isResolved) {
-        isResolved = true;
-        resolve(canvas);
-      }
-    };
-    
-    // Set up error handler - immediately use fallback on any error
+    // Set up error handler - use fallback on any error
     img.onerror = () => {
-      console.warn('CORS image load failed, using fallback for:', imageUrl);
-      resolveOnce(createFallbackMarker(size));
+      console.warn('Image load failed, using fallback for:', imageUrl);
+      resolve(createFallbackMarker(size));
     };
     
     // Set up success handler
-    img.onload = () => {
-      if (!isResolved) {
-        drawImageToCanvas();
-      }
-    };
+    img.onload = drawImageToCanvas;
     
-    // Add timeout for image loading
-    const loadTimeout = setTimeout(() => {
-      if (!isResolved) {
+    // Add timeout
+    const timeout = setTimeout(() => {
+      if (!img.complete) {
+        img.src = ''; // Cancel request
         console.warn('Image load timed out, using fallback for:', imageUrl);
-        img.src = ''; // Cancel the request
-        resolveOnce(createFallbackMarker(size));
+        resolve(createFallbackMarker(size));
       }
     }, 5000); // 5 second timeout
     
@@ -135,16 +121,16 @@ const createCircularImageCanvas = (
     const originalOnerror = img.onerror;
     
     img.onload = (ev: Event) => {
-      clearTimeout(loadTimeout);
+      clearTimeout(timeout);
       if (originalOnload) originalOnload.call(img, ev);
     };
     
     img.onerror = (ev: Event | string) => {
-      clearTimeout(loadTimeout);
+      clearTimeout(timeout);
       if (originalOnerror) originalOnerror.call(img, ev);
     };
     
-    // Always use CORS to prevent canvas tainting - if it fails, we use fallback
+    // Always use CORS to prevent canvas tainting for WebGL
     img.crossOrigin = 'anonymous';
     img.src = imageUrl;
   });
@@ -206,6 +192,12 @@ export default function CesiumMapComponent({
 
   // Add canvas cache to prevent flickering
   const canvasCache = useRef<{[key: string]: HTMLCanvasElement}>({});
+
+  // Clear canvas cache when component mounts/remounts (e.g., after navigation)
+  useEffect(() => {
+    // Clear the cache on mount to ensure fresh start after navigation
+    canvasCache.current = {};
+  }, []);
 
   // Load Cesium
   useEffect(() => {
