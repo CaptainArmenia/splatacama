@@ -222,263 +222,357 @@ export default function CesiumMapComponent({
   useEffect(() => {
     if (!cesium || !containerRef.current) return;
 
-    try {
-      // Configure Cesium Ion token with better error handling
-      if (!process.env.NEXT_PUBLIC_CESIUM_TOKEN) {
-        console.error("Cesium Ion Token is missing. Check .env.local and restart the server.");
-        setErrorState("Cesium Ion Token is missing. Please configure it in your environment variables.");
-        return; 
-      }
-      
-      // Set the token and configure the default server
-      cesium.Ion.defaultAccessToken = process.env.NEXT_PUBLIC_CESIUM_TOKEN;
-      
-      // Create Cesium viewer
-      const viewer = new cesium.Viewer(containerRef.current, {
-        terrain: undefined,
-        timeline: false,
-        animation: false,
-        sceneModePicker: false,  
-        baseLayerPicker: true,  // Keep this enabled
-        baseLayer: new cesium.ImageryLayer.fromProviderAsync(cesium.IonImageryProvider.fromAssetId(3954)),
-        navigationHelpButton: false,
-        homeButton: false,       
-        geocoder: false,
-        fullscreenButton: false,  
-        vrButton: false,
-        navigationInstructionsInitiallyVisible: false,
-        selectionIndicator: true, // Enable selection indicator
-        infoBox: false,
-        creditContainer: document.createElement('div'), // Hide credits
-      });
-
-      // Store viewer reference
-      viewerRef.current = viewer;
-
-      // Customize the baseLayerPicker to use a layer icon
-      setTimeout(() => {
-        try {
-          // Find the baseLayerPicker elements
-          const baseLayerPickerContainer = document.querySelector('.cesium-viewer .cesium-baseLayerPicker-dropDown');
-          const layerButton = document.querySelector('.cesium-viewer .cesium-toolbar-button');
-          
-          // Reposition the container
-          if (baseLayerPickerContainer && baseLayerPickerContainer.parentElement) {
-            const container = baseLayerPickerContainer.parentElement;
-            Object.assign(container.style, {
-              top: '15%',
-              right: '20px',
-              position: 'absolute',
-              zIndex: '35',
-              transition: 'transform 0.3s ease-in-out',
-            });
-          }
-
-          // Replace the default button with a custom layer icon
-          if (layerButton) {
-            const button = layerButton as HTMLElement;
-            
-            // Set button dimensions and style
-            Object.assign(button.style, {
-              width: '50px',
-              height: '50px',
-              background: 'rgba(0, 0, 0, 0.6)',
-              border: '2px solid rgba(255, 255, 255, 0.3)',
-              borderRadius: '50%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '0',
-              transition: 'all 0.2s ease',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
-            });
-            
-            // Add hover effect
-            button.onmouseenter = () => {
-              button.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
-              button.style.transform = 'translateY(-2px)';
-              button.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.5)';
-            };
-            
-            button.onmouseleave = () => {
-              button.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
-              button.style.transform = 'translateY(0)';
-              button.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.3)';
-            };
-            
-            // Clear existing content and add custom SVG icon
-            button.innerHTML = '';
-            const layerIcon = document.createElement('div');
-            layerIcon.innerHTML = `
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
-                <path d="M2 17l10 5 10-5"></path>
-                <path d="M2 12l10 5 10-5"></path>
-              </svg>
-            `;
-            button.appendChild(layerIcon);
-            
-            // Add tooltip/label
-            const tooltip = document.createElement('span');
-            tooltip.textContent = 'Cambiar mapa';
-            tooltip.style.cssText = 'position: absolute; background: rgba(0,0,0,0.8); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; white-space: nowrap; opacity: 0; transition: opacity 0.2s ease; right: 60px;';
-            
-            button.appendChild(tooltip);
-            
-            button.onmouseenter = (e) => {
-              button.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
-              button.style.transform = 'translateY(-2px)';
-              button.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.5)';
-              tooltip.style.opacity = '1';
-            };
-            
-            button.onmouseleave = (e) => {
-              button.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
-              button.style.transform = 'translateY(0)';
-              button.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.3)';
-              tooltip.style.opacity = '0';
-            };
-          }
-
-        } catch (error) {
-          console.warn("Error customizing baseLayerPicker:", error);
+    async function createViewer() {
+      try {
+        // Configure Cesium Ion token with better error handling
+        if (!process.env.NEXT_PUBLIC_CESIUM_TOKEN) {
+          console.error("Cesium Ion Token is missing. Check .env.local and restart the server.");
+          setErrorState("Cesium Ion Token is missing. Please configure it in your environment variables.");
+          return; 
         }
-      }, 200); // Small delay to ensure DOM is ready
-      
-      // Load terrain asynchronously
-      cesium.createWorldTerrainAsync().then((terrainProvider: any) => {
-        viewer.scene.terrainProvider = terrainProvider;
-      });
-      
-      // Set up viewer settings
-      viewer.scene.globe.enableLighting = true;
-      viewer.scene.globe.depthTestAgainstTerrain = true;
-      viewer.scene.globe.terrainExaggeration = 1.5;
-      viewer.scene.screenSpaceCameraController.enableCollisionDetection = true;
-
-      // Additional setting to ensure depth testing works properly
-      if (preventPinOcclusion) {
-        viewer.scene.globe.depthTestAgainstTerrain = false;
-      }
-
-      // Add landmarks as billboards
-      landmarks.forEach((landmark) => {
-        const entity = new cesium.Entity({
-          position: cesium.Cartesian3.fromDegrees(landmark.lng, landmark.lat, landmark.height || 200),
-          name: landmark.name,
-          id: landmark.id,
-          billboard: {
-            image: createFallbackMarker(), // Start with fallback
-            width: DEFAULT_MARKER_SIZE,
-            height: DEFAULT_MARKER_SIZE,
-            heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
-            disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined,
-            verticalOrigin: VerticalOrigin.CENTER, // Change from BOTTOM to CENTER
-            horizontalOrigin: HorizontalOrigin.CENTER,
-            scale: 1.0,
-            eyeOffset: new cesium.Cartesian3(0, 0, -50) // Optional: slight offset to avoid z-fighting
-          }
+        
+        // Set the token and configure the default server
+        cesium.Ion.defaultAccessToken = process.env.NEXT_PUBLIC_CESIUM_TOKEN;
+        
+        // Create terrain provider first
+        const terrainProvider = await cesium.createWorldTerrainAsync();
+        
+        // Create Cesium viewer with Cesium World Terrain
+        const viewer = new cesium.Viewer(containerRef.current, {
+          terrainProvider: terrainProvider, // Use pre-loaded Cesium World Terrain
+          timeline: false,
+          animation: false,
+          sceneModePicker: false,  
+          baseLayerPicker: true,  // Keep this enabled
+          baseLayer: new cesium.ImageryLayer.fromProviderAsync(cesium.IonImageryProvider.fromAssetId(3954)),
+          navigationHelpButton: false,
+          homeButton: false,       
+          geocoder: false,
+          fullscreenButton: false,  
+          vrButton: false,
+          navigationInstructionsInitiallyVisible: false,
+          selectionIndicator: true, // Enable selection indicator
+          infoBox: false,
+          creditContainer: document.createElement('div'), // Hide credits
         });
 
-        entityRefs.current[landmark.id] = entity;
-        viewer.entities.add(entity);
-      });
+        // Store viewer reference
+        viewerRef.current = viewer;
 
-      // Click handler
-      const clickHandler = new cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-      clickHandler.setInputAction((click: any) => {
-        const pickedObject = viewer.scene.pick(click.position);
-        
-        if (cesium.defined(pickedObject) && pickedObject.id) {
-          const clickedLandmark = landmarks.find(landmark => landmark.id === pickedObject.id.id);
-          
-          if (clickedLandmark) {
-            click.preventDefault?.();
-            setSelectedLandmark(clickedLandmark);
-          }
-        } else {
-          setSelectedLandmark(null);
+        // Set the terrain provider for the terrain provider selector (ensure Cesium World Terrain is selected)
+        if (viewer.baseLayerPicker) {
+          // Wait a moment for the UI to initialize
+          setTimeout(() => {
+            const terrainProviderViewModels = viewer.baseLayerPicker.viewModel.terrainProviderViewModels;
+            // Find the Cesium World Terrain model
+            const cesiumWorldTerrainModel = terrainProviderViewModels.find(
+              model => model.name === 'Cesium World Terrain'
+            );
+            
+            if (cesiumWorldTerrainModel) {
+              // Set it as the selected terrain
+              viewer.baseLayerPicker.viewModel.selectedTerrain = cesiumWorldTerrainModel;
+            }
+
+            // Set default imagery to ArcGIS World Imagery with better error handling
+            const imageryProviderViewModels = viewer.baseLayerPicker.viewModel.imageryProviderViewModels;
+            const arcGISWorldImageryModel = imageryProviderViewModels.find(
+              model => model.name === 'ArcGIS World Imagery'
+            );
+            
+            if (arcGISWorldImageryModel) {
+              // Add error handling for imagery provider
+              try {
+                viewer.baseLayerPicker.viewModel.selectedImagery = arcGISWorldImageryModel;
+                
+                // Add error event listener for imagery layer
+                viewer.scene.globe.imageryLayers.layerAdded.addEventListener((layer: any) => {
+                  if (layer.imageryProvider && layer.imageryProvider.errorEvent) {
+                    layer.imageryProvider.errorEvent.addEventListener((error: any) => {
+                      console.warn('Imagery tile loading error:', error);
+                      // Don't throw error, just log it to prevent cascading failures
+                    });
+                  }
+                });
+              } catch (error) {
+                console.warn('Error setting ArcGIS World Imagery:', error);
+                // Fall back to default imagery if there's an issue
+              }
+            }
+          }, 300);
         }
-      }, cesium.ScreenSpaceEventType.LEFT_CLICK);
 
-      // Hover handler
-      const hoverHandler = new cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-      hoverHandler.setInputAction((movement: any) => {
-        const pickedObject = viewer.scene.pick(movement.endPosition);
+        // Customize the baseLayerPicker to use a layer icon
+        setTimeout(() => {
+          try {
+            // Find the baseLayerPicker elements - properly cast to HTMLElement
+            const baseLayerPickerContainer = document.querySelector('.cesium-viewer .cesium-baseLayerPicker-dropDown') as HTMLElement;
+            const layerButton = document.querySelector('.cesium-viewer .cesium-toolbar-button') as HTMLElement;
+            
+            // Reposition the container with mobile-responsive constraints
+            if (baseLayerPickerContainer && baseLayerPickerContainer.parentElement) {
+              const container = baseLayerPickerContainer.parentElement as HTMLElement;
+              Object.assign(container.style, {
+                top: '15%',
+                right: '20px',
+                position: 'absolute',
+                zIndex: '35',
+                transition: 'transform 0.3s ease-in-out',
+                // Add mobile-specific constraints
+                maxHeight: '70vh', // Limit height to 70% of viewport
+                overflow: 'visible', // Change from 'hidden' to 'visible' to show dropdown
+              });
+            }
+
+            // Fix the dropdown content to be scrollable on mobile
+            if (baseLayerPickerContainer) {
+              Object.assign(baseLayerPickerContainer.style, {
+                maxHeight: '60vh', // Limit dropdown height
+                overflowY: 'auto', // Enable vertical scrolling
+                overflowX: 'hidden', // Hide horizontal overflow
+                // Add mobile-friendly scrollbar styling
+                scrollbarWidth: 'thin',
+              });
+
+              // Add webkit scrollbar styling for better mobile experience
+              const styleSheet = document.createElement('style');
+              styleSheet.textContent = `
+                .cesium-baseLayerPicker-dropDown::-webkit-scrollbar {
+                  width: 8px;
+                }
+                .cesium-baseLayerPicker-dropDown::-webkit-scrollbar-track {
+                  background: rgba(0,0,0,0.1);
+                  border-radius: 4px;
+                }
+                .cesium-baseLayerPicker-dropDown::-webkit-scrollbar-thumb {
+                  background: rgba(255,255,255,0.3);
+                  border-radius: 4px;
+                }
+                .cesium-baseLayerPicker-dropDown::-webkit-scrollbar-thumb:hover {
+                  background: rgba(255,255,255,0.5);
+                }
+                
+                /* Ensure items in the picker are properly sized for mobile */
+                @media (max-width: 768px) {
+                  .cesium-baseLayerPicker-dropDown {
+                    min-width: 250px;
+                    max-width: calc(100vw - 60px);
+                  }
+                  .cesium-baseLayerPicker-item {
+                    padding: 8px !important;
+                  }
+                }
+              `;
+              document.head.appendChild(styleSheet);
+            }
+
+            // Replace the default button with a custom layer icon
+            if (layerButton) {
+              // Set button dimensions and style
+              Object.assign(layerButton.style, {
+                width: '50px',
+                height: '50px',
+                background: 'rgba(0, 0, 0, 0.6)',
+                border: '2px solid rgba(255, 255, 255, 0.3)',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0',
+                transition: 'all 0.2s ease',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+              });
+              
+              // Add hover effect
+              layerButton.onmouseenter = () => {
+                layerButton.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+                layerButton.style.transform = 'translateY(-2px)';
+                layerButton.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.5)';
+              };
+              
+              layerButton.onmouseleave = () => {
+                layerButton.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
+                layerButton.style.transform = 'translateY(0)';
+                layerButton.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.3)';
+              };
+              
+              // Clear existing content and add custom SVG icon
+              layerButton.innerHTML = '';
+              const layerIcon = document.createElement('div');
+              layerIcon.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                  <path d="M2 17l10 5 10-5"></path>
+                  <path d="M2 12l10 5 10-5"></path>
+                </svg>
+              `;
+              layerButton.appendChild(layerIcon);
+              
+              // Add tooltip/label
+              const tooltip = document.createElement('span');
+              tooltip.textContent = 'Cambiar mapa';
+              tooltip.style.cssText = 'position: absolute; background: rgba(0,0,0,0.8); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; white-space: nowrap; opacity: 0; transition: opacity 0.2s ease; right: 60px;';
+              
+              layerButton.appendChild(tooltip);
+              
+              layerButton.onmouseenter = (e) => {
+                layerButton.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+                layerButton.style.transform = 'translateY(-2px)';
+                layerButton.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.5)';
+                tooltip.style.opacity = '1';
+              };
+              
+              layerButton.onmouseleave = (e) => {
+                layerButton.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
+                layerButton.style.transform = 'translateY(0)';
+                layerButton.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.3)';
+                tooltip.style.opacity = '0';
+              };
+            }
+
+          } catch (error) {
+            console.warn("Error customizing baseLayerPicker:", error);
+          }
+        }, 200); // Small delay to ensure DOM is ready
         
-        if (cesium.defined(pickedObject) && pickedObject.id) {
-          const hoveredLandmarkData = landmarks.find(landmark => landmark.id === pickedObject.id.id);
+        // Set up viewer settings
+        viewer.scene.globe.enableLighting = false; // Disable day/night lighting effects
+        viewer.scene.skyBox = undefined; // Remove sky box
+        viewer.scene.sun = undefined; // Remove sun
+        viewer.scene.moon = undefined; // Remove moon
+        viewer.scene.globe.depthTestAgainstTerrain = true;
+        viewer.scene.globe.terrainExaggeration = 1.5;
+        viewer.scene.screenSpaceCameraController.enableCollisionDetection = true;
+
+        // Add camera constraints to prevent invalid tile requests
+        viewer.scene.screenSpaceCameraController.minimumZoomDistance = 500; // Minimum zoom distance in meters
+        viewer.scene.screenSpaceCameraController.maximumZoomDistance = 50000000; // Maximum zoom distance in meters
+
+        // Additional setting to ensure depth testing works properly
+        if (preventPinOcclusion) {
+          viewer.scene.globe.depthTestAgainstTerrain = false;
+        }
+
+        // Add landmarks as billboards
+        landmarks.forEach((landmark) => {
+          const entity = new cesium.Entity({
+            position: cesium.Cartesian3.fromDegrees(landmark.lng, landmark.lat, landmark.height || 200),
+            name: landmark.name,
+            id: landmark.id,
+            billboard: {
+              image: createFallbackMarker(), // Start with fallback
+              width: DEFAULT_MARKER_SIZE,
+              height: DEFAULT_MARKER_SIZE,
+              heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
+              disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined,
+              verticalOrigin: VerticalOrigin.CENTER, // Change from BOTTOM to CENTER
+              horizontalOrigin: HorizontalOrigin.CENTER,
+              scale: 1.0,
+              eyeOffset: new cesium.Cartesian3(0, 0, -50) // Optional: slight offset to avoid z-fighting
+            }
+          });
+
+          entityRefs.current[landmark.id] = entity;
+          viewer.entities.add(entity);
+        });
+
+        // Click handler
+        const clickHandler = new cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+        clickHandler.setInputAction((click: any) => {
+          const pickedObject = viewer.scene.pick(click.position);
           
-          if (hoveredLandmarkData) {
-            setHoveredLandmark(hoveredLandmarkData);
-            document.body.style.cursor = 'pointer';
+          if (cesium.defined(pickedObject) && pickedObject.id) {
+            const clickedLandmark = landmarks.find(landmark => landmark.id === pickedObject.id.id);
+            
+            if (clickedLandmark) {
+              click.preventDefault?.();
+              setSelectedLandmark(clickedLandmark);
+            }
+          } else {
+            setSelectedLandmark(null);
+          }
+        }, cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+        // Hover handler
+        const hoverHandler = new cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+        hoverHandler.setInputAction((movement: any) => {
+          const pickedObject = viewer.scene.pick(movement.endPosition);
+          
+          if (cesium.defined(pickedObject) && pickedObject.id) {
+            const hoveredLandmarkData = landmarks.find(landmark => landmark.id === pickedObject.id.id);
+            
+            if (hoveredLandmarkData) {
+              setHoveredLandmark(hoveredLandmarkData);
+              document.body.style.cursor = 'pointer';
+            } else {
+              setHoveredLandmark(null);
+              document.body.style.cursor = 'default';
+            }
           } else {
             setHoveredLandmark(null);
             document.body.style.cursor = 'default';
           }
-        } else {
-          setHoveredLandmark(null);
-          document.body.style.cursor = 'default';
-        }
-      }, cesium.ScreenSpaceEventType.MOUSE_MOVE);
+        }, cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
-      // Set up resize observer to handle responsive behavior
-      const handleResize = () => {
-        if (containerRef.current && viewer) {
-          // Trigger a resize to update canvas dimensions
-          viewer.resize();
-          
-          // Update camera aspect ratio
-          const { width, height } = containerRef.current.getBoundingClientRect();
-          viewer.scene.camera.frustum.aspectRatio = width / height;
-          
-          // Force a scene render to apply changes
-          viewer.scene.requestRender();
+        // Set up resize observer to handle responsive behavior
+        const handleResize = () => {
+          if (containerRef.current && viewer) {
+            // Trigger a resize to update canvas dimensions
+            viewer.resize();
+            
+            // Update camera aspect ratio
+            const { width, height } = containerRef.current.getBoundingClientRect();
+            viewer.scene.camera.frustum.aspectRatio = width / height;
+            
+            // Force a scene render to apply changes
+            viewer.scene.requestRender();
+          }
+        };
+        
+        // Set up resize observer
+        const resizeObserver = new ResizeObserver(handleResize);
+        if (containerRef.current) {
+          resizeObserver.observe(containerRef.current);
         }
-      };
-      
-      // Set up resize observer
-      const resizeObserver = new ResizeObserver(handleResize);
-      if (containerRef.current) {
-        resizeObserver.observe(containerRef.current);
+        
+        // Set up initial camera position using the default config
+        const centerPoint = cesium.Cartesian3.fromDegrees(
+          humboldtCenter.lng, 
+          humboldtCenter.lat,
+          DEFAULT_CAMERA_CONFIG.position.height
+        );
+        
+        viewer.camera.setView({
+          destination: centerPoint,
+          orientation: {
+            heading: cesium.Math.toRadians(DEFAULT_CAMERA_CONFIG.orientation.heading),
+            pitch: cesium.Math.toRadians(DEFAULT_CAMERA_CONFIG.orientation.pitch),
+            roll: DEFAULT_CAMERA_CONFIG.orientation.roll
+          }
+        });
+        
+        // Mark map as loaded
+        setMapLoaded(true);
+
+        // Clean up function
+        return () => {
+          if (resizeObserver) {
+            resizeObserver.disconnect();
+          }
+          clickHandler.destroy();
+          hoverHandler.destroy();
+          document.body.style.cursor = 'default'; // Reset cursor on cleanup
+          if (viewer) {
+            viewer.destroy();
+          }
+        };
+      } catch (error) {
+        console.error("Error initializing Cesium viewer:", error);
+        setErrorState("Failed to initialize 3D map viewer");
       }
-      
-      // Set up initial camera position using the default config
-      const centerPoint = cesium.Cartesian3.fromDegrees(
-        humboldtCenter.lng, 
-        humboldtCenter.lat,
-        DEFAULT_CAMERA_CONFIG.position.height
-      );
-      
-      viewer.camera.setView({
-        destination: centerPoint,
-        orientation: {
-          heading: cesium.Math.toRadians(DEFAULT_CAMERA_CONFIG.orientation.heading),
-          pitch: cesium.Math.toRadians(DEFAULT_CAMERA_CONFIG.orientation.pitch),
-          roll: DEFAULT_CAMERA_CONFIG.orientation.roll
-        }
-      });
-      
-      // Mark map as loaded
-      setMapLoaded(true);
-
-      // Clean up function
-      return () => {
-        if (resizeObserver) {
-          resizeObserver.disconnect();
-        }
-        clickHandler.destroy();
-        hoverHandler.destroy();
-        document.body.style.cursor = 'default'; // Reset cursor on cleanup
-        if (viewer) {
-          viewer.destroy();
-        }
-      };
-    } catch (error) {
-      console.error("Error initializing Cesium viewer:", error);
-      setErrorState("Failed to initialize 3D map viewer");
     }
-    // Remove selectedLandmark from the dependency array to prevent map reloading
+    
+    createViewer();
   }, [cesium, containerRef, landmarks, humboldtCenter, setErrorState, setSelectedLandmark, preventPinOcclusion]);
 
   // Track previous states to detect changes
@@ -935,11 +1029,11 @@ export default function CesiumMapComponent({
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
                 <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H3.989a.75.75 0 00-.75.75v4.242a.75.75 0 001.5 0v-2.43l.31.31a7 7 0 0011.712-3.138.75.75 0 00-1.449-.39zm1.23-3.723a.75.75 0 00.219-.53V2.929a.75.75 0 00-1.5 0V5.36l-.31-.31A7 7 0 003.239 8.188a.75.75 0 101.448.389A5.5 5.5 0 0113.89 6.11l.311.31h-2.432a.75.75 0 000 1.5h4.243a.75.75 0 00.53-.219z" clipRule="evenodd" />
             </svg>
-            Restablecer Vista 3D
-          </button>
-        </div>
-      </>
-    )}
-  </>
-);
+              Restablecer Vista 3D
+            </button>
+          </div>
+        </>
+      )}
+    </>
+  );
 }
