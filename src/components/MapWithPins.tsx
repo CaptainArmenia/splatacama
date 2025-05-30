@@ -4,18 +4,7 @@ import React from 'react';
 // Then import individual hooks separately
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-
-// Define interfaces and constants outside the component
-interface MapLandmark {
-  id: string;
-  name: string;
-  lat: number;
-  lng: number;
-  height: number;
-  description: string;
-  gsplatUrl: string;  
-  previewUrl?: string;
-}
+import type { MapLandmark } from '@/types/cesium';
 
 // Humboldt Archipelago coordinates (approximate center)
 const humboldtCenter = { lat: -29.168210, lng: -71.599582 };
