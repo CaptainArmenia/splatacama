@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import CesiumCompass from './CesiumCompass';
 import { LandmarkInfoPanel } from './LandmarkInfoPanel';
+import { OverlappingLandmarksPanel } from './OverlappingLandmarksPanel';
 import { CameraPositionPanel } from './CameraPositionPanel';
 import { MapControls } from './MapControls';
 import { useCesiumViewer } from '@/hooks/useCesiumViewer';
@@ -22,6 +23,7 @@ export default function CesiumMapComponent({
   const containerRef = useRef<HTMLDivElement>(null);
   const [showCameraPosition, setShowCameraPosition] = useState(initialShowCameraPosition);
   const [hoveredLandmark, setHoveredLandmark] = useState<MapLandmark | null>(null);
+  const [overlappingLandmarks, setOverlappingLandmarks] = useState<MapLandmark[]>([]);
 
   // Custom hooks
   const { mapLoaded, cesium, viewer, entityRefs } = useCesiumViewer(
@@ -31,6 +33,7 @@ export default function CesiumMapComponent({
     setErrorState,
     setSelectedLandmark,
     setHoveredLandmark,
+    setOverlappingLandmarks,
     preventPinOcclusion
   );
 
@@ -174,6 +177,19 @@ export default function CesiumMapComponent({
         <CesiumCompass viewer={viewer} cesium={cesium} />
       )}
       
+      {/* Chooser for pins stacked on top of each other */}
+      {overlappingLandmarks.length > 1 && (
+        <OverlappingLandmarksPanel
+          landmarks={overlappingLandmarks}
+          previewUrls={previewUrls}
+          onSelect={(landmark) => {
+            setOverlappingLandmarks([]);
+            setSelectedLandmark(landmark);
+          }}
+          onClose={() => setOverlappingLandmarks([])}
+        />
+      )}
+
       {/* Landmark info panel */}
       {selectedLandmark && (
         <LandmarkInfoPanel

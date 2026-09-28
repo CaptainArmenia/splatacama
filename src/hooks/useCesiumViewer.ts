@@ -14,6 +14,7 @@ export const useCesiumViewer = (
   setErrorState: (error: string | null) => void,
   setSelectedLandmark: (landmark: MapLandmark | null) => void,
   setHoveredLandmark: (landmark: MapLandmark | null) => void,
+  setOverlappingLandmarks: (landmarks: MapLandmark[]) => void,
   preventPinOcclusion: boolean
 ) => {
   const [mapLoaded, setMapLoaded] = useState(false);
@@ -76,7 +77,7 @@ export const useCesiumViewer = (
         addLandmarkBillboards(viewer, cesium, landmarks, preventPinOcclusion, entityRefs);
         
         // Setup event handlers
-        setupEventHandlers(viewer, cesium, landmarks, setSelectedLandmark, setHoveredLandmark);
+        setupEventHandlers(viewer, cesium, landmarks, setSelectedLandmark, setHoveredLandmark, setOverlappingLandmarks);
         
         // Setup resize handling
         const resizeObserver = setupResizeHandling(viewer, containerRef);
@@ -103,7 +104,7 @@ export const useCesiumViewer = (
     }
     
     createViewer();
-  }, [cesium, containerRef, landmarks, humboldtCenter, setErrorState, setSelectedLandmark, setHoveredLandmark, preventPinOcclusion]);
+  }, [cesium, containerRef, landmarks, humboldtCenter, setErrorState, setSelectedLandmark, setHoveredLandmark, setOverlappingLandmarks, preventPinOcclusion]);
 
   return {
     mapLoaded,
@@ -250,21 +251,26 @@ function setupEventHandlers(
   cesium: any, 
   landmarks: MapLandmark[], 
   setSelectedLandmark: (landmark: MapLandmark | null) => void,
-  setHoveredLandmark: (landmark: MapLandmark | null) => void
+  setHoveredLandmark: (landmark: MapLandmark | null) => void,
+  setOverlappingLandmarks: (landmarks: MapLandmark[]) => void
 ) {
-  // Click handler
+  // Click handler. drillPick returns every pin under the cursor, not just the top one,
+  // so sites whose pins overlap (e.g. two pircas 30 m apart) can still be told apart.
   const clickHandler = new cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
   clickHandler.setInputAction((click: any) => {
-    const pickedObject = viewer.scene.pick(click.position);
-    
-    if (cesium.defined(pickedObject) && pickedObject.id) {
-      const clickedLandmark = landmarks.find(landmark => landmark.id === pickedObject.id.id);
-      
-      if (clickedLandmark) {
-        click.preventDefault?.();
-        setSelectedLandmark(clickedLandmark);
-      }
+    const pickedIds = new Set(viewer.scene.drillPick(click.position, 10).map((picked: any) => picked.id?.id));
+    const clickedLandmarks = landmarks.filter(landmark => pickedIds.has(landmark.id));
+
+    if (clickedLandmarks.length > 1) {
+      click.preventDefault?.();
+      setSelectedLandmark(null);
+      setOverlappingLandmarks(clickedLandmarks);
+    } else if (clickedLandmarks.length === 1) {
+      click.preventDefault?.();
+      setOverlappingLandmarks([]);
+      setSelectedLandmark(clickedLandmarks[0]);
     } else {
+      setOverlappingLandmarks([]);
       setSelectedLandmark(null);
     }
   }, cesium.ScreenSpaceEventType.LEFT_CLICK);

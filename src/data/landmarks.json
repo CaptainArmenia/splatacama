@@ -2,112 +2,41 @@
   {
     "id": "pirca0",
     "name": "Pirca",
-    "lat": -28.979,
-    "lng": -71.496,
+    "lat": -28.955,
+    "lng": -71.476,
     "height": 100,
     "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
     "gsplatUrl": "pirca.splat",
     "previewUrl": "pirca0_preview.jpg"
   },
   {
-    "id": "pirca1",
+    "id": "pirca11",
     "name": "Pirca",
-    "lat": -28.9821,
-    "lng": -71.513,
+    "lat": -29.237684,
+    "lng": -71.452685,
     "height": 100,
     "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
-    "gsplatUrl": "pirca.splat",
-    "previewUrl": "pirca0_preview.jpg"
+    "gsplatUrl": "pirca11.splat",
+    "previewUrl": "pirca11_preview.jpg"
   },
   {
-    "id": "pirca2",
+    "id": "pirca12",
     "name": "Pirca",
-    "lat": -28.994,
-    "lng": -71.492,
+    "lat": -29.237427,
+    "lng": -71.452572,
     "height": 100,
     "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
-    "gsplatUrl": "pirca.splat",
-    "previewUrl": "pirca0_preview.jpg"
+    "gsplatUrl": "pirca12.splat",
+    "previewUrl": "pirca12_preview.jpg"
   },
   {
-    "id": "pirca3",
+    "id": "pirca13",
     "name": "Pirca",
-    "lat": -29.041,
-    "lng": -71.481,
+    "lat": -29.079736,
+    "lng": -71.461843,
     "height": 100,
-    "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
-    "gsplatUrl": "pirca.splat",
-    "previewUrl": "pirca0_preview.jpg"
-  },
-  {
-    "id": "pirca4",
-    "name": "Pirca",
-    "lat": -29.070,
-    "lng": -71.487,
-    "height": 100,
-    "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
-    "gsplatUrl": "pirca.splat",
-    "previewUrl": "pirca0_preview.jpg"
-  },
-  {
-    "id": "pirca5",
-    "name": "Pirca",
-    "lat": -29.168,
-    "lng": -71.599,
-    "height": 100,
-    "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
-    "gsplatUrl": "pirca.splat",
-    "previewUrl": "pirca0_preview.jpg"
-  },
-  {
-    "id": "pirca6",
-    "name": "Pirca",
-    "lat": -28.906,
-    "lng": -71.515,
-    "height": 100,
-    "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
-    "gsplatUrl": "pirca.splat",
-    "previewUrl": "pirca0_preview.jpg"
-  },
-  {
-    "id": "pirca7",
-    "name": "Pirca",
-    "lat": -28.851,
-    "lng": -71.466,
-    "height": 100,
-    "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
-    "gsplatUrl": "pirca.splat",
-    "previewUrl": "pirca0_preview.jpg"
-  },
-  {
-    "id": "pirca8",
-    "name": "Pirca",
-    "lat": -28.896,
-    "lng": -71.503,
-    "height": 100,
-    "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
-    "gsplatUrl": "pirca.splat",
-    "previewUrl": "pirca0_preview.jpg"
-  },
-  {
-    "id": "pirca9",
-    "name": "Pirca",
-    "lat": -29.080,
-    "lng": -71.488,
-    "height": 100,
-    "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
-    "gsplatUrl": "pirca.splat",
-    "previewUrl": "pirca0_preview.jpg"
-  },
-  {
-    "id": "pirca10",
-    "name": "Pirca",
-    "lat": -29.168,
-    "lng": -71.599,
-    "height": 100,
-    "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
-    "gsplatUrl": "pirca.splat",
-    "previewUrl": "pirca0_preview.jpg"
+    "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca de planta rectangular y piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
+    "gsplatUrl": "pirca13.splat",
+    "previewUrl": "pirca13_preview.jpg"
   }
-  
 ]
