@@ -4,39 +4,43 @@
     "name": "Pirca",
     "lat": -28.955,
     "lng": -71.476,
-    "height": 100,
+    "height": 30,
     "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
     "gsplatUrl": "pirca.splat",
-    "previewUrl": "pirca0_preview.jpg"
+    "previewUrl": "pirca0_preview.jpg",
+    "thumbnailUrl": "pirca0_thumb.jpg"
   },
   {
     "id": "pirca11",
     "name": "Pirca",
     "lat": -29.237684,
     "lng": -71.452685,
-    "height": 100,
+    "height": 30,
     "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
     "gsplatUrl": "pirca11.splat",
-    "previewUrl": "pirca11_preview.jpg"
+    "previewUrl": "pirca11_preview.jpg",
+    "thumbnailUrl": "pirca11_thumb.jpg"
   },
   {
     "id": "pirca12",
     "name": "Pirca",
     "lat": -29.237427,
     "lng": -71.452572,
-    "height": 100,
+    "height": 30,
     "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
     "gsplatUrl": "pirca12.splat",
-    "previewUrl": "pirca12_preview.jpg"
+    "previewUrl": "pirca12_preview.jpg",
+    "thumbnailUrl": "pirca12_thumb.jpg"
   },
   {
     "id": "pirca13",
     "name": "Pirca",
     "lat": -29.079736,
     "lng": -71.461843,
-    "height": 100,
+    "height": 30,
     "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca de planta rectangular y piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
     "gsplatUrl": "pirca13.splat",
-    "previewUrl": "pirca13_preview.jpg"
+    "previewUrl": "pirca13_preview.jpg",
+    "thumbnailUrl": "pirca13_thumb.jpg"
   }
 ]

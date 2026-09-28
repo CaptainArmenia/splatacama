@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { HeightReference, HorizontalOrigin, VerticalOrigin } from 'cesium';
 import { DEFAULT_CAMERA_CONFIG, VIEWER_CONFIG, SCENE_CONFIG, MARKER_CONFIG } from '@/constants/cesiumConfig';
 import { createFallbackMarker } from '@/utils/cesiumMarkers';
+import { setupPinClusters } from '@/utils/cesiumPinClusters';
 import type { MapLandmark } from '@/types/cesium';
 
 /**
@@ -10,11 +11,9 @@ import type { MapLandmark } from '@/types/cesium';
 export const useCesiumViewer = (
   containerRef: React.RefObject<HTMLDivElement>,
   landmarks: MapLandmark[],
-  humboldtCenter: { lat: number; lng: number },
   setErrorState: (error: string | null) => void,
   setSelectedLandmark: (landmark: MapLandmark | null) => void,
   setHoveredLandmark: (landmark: MapLandmark | null) => void,
-  setOverlappingLandmarks: (landmarks: MapLandmark[]) => void,
   preventPinOcclusion: boolean
 ) => {
   const [mapLoaded, setMapLoaded] = useState(false);
@@ -30,81 +29,42 @@ export const useCesiumViewer = (
         setCesium(cesiumModule);
       } catch (error) {
         console.error('Failed to load Cesium:', error);
-        setErrorState('Error loading 3D map components');
+        setErrorState('No se pudieron cargar los componentes del mapa 3D');
       }
     }
-    
+
     if (typeof window !== 'undefined') {
       initCesium();
     }
   }, [setErrorState]);
 
-  // Create viewer once Cesium is loaded
+  // Create viewer once Cesium is loaded, and destroy it on unmount
   useEffect(() => {
-    if (!cesium || !containerRef.current) return;
+    const container = containerRef.current;
+    if (!cesium || !container) return;
 
-    async function createViewer() {
-      try {
-        // Configure Cesium Ion token
-        if (!process.env.NEXT_PUBLIC_CESIUM_TOKEN) {
-          console.error("Cesium Ion Token is missing. Check .env.local and restart the server.");
-          setErrorState("Cesium Ion Token is missing. Please configure it in your environment variables.");
-          return; 
-        }
-        
-        cesium.Ion.defaultAccessToken = process.env.NEXT_PUBLIC_CESIUM_TOKEN;
-        
-        // Create terrain provider
-        const terrainProvider = await cesium.createWorldTerrainAsync();
-        
-        // Create Cesium viewer
-        const viewer = new cesium.Viewer(containerRef.current, {
-          ...VIEWER_CONFIG,
-          terrainProvider: terrainProvider,
-          baseLayer: new cesium.ImageryLayer.fromProviderAsync(cesium.IonImageryProvider.fromAssetId(3954)),
-          creditContainer: document.createElement('div'), // Hide credits
-        });
-
-        viewerRef.current = viewer;
-
-        // Configure viewer settings
-        setupViewerSettings(viewer, cesium, preventPinOcclusion);
-        
-        // Setup base layer picker customization
-        setupBaseLayerPicker(viewer);
-        
-        // Add landmarks as billboards
-        addLandmarkBillboards(viewer, cesium, landmarks, preventPinOcclusion, entityRefs);
-        
-        // Setup event handlers
-        setupEventHandlers(viewer, cesium, landmarks, setSelectedLandmark, setHoveredLandmark, setOverlappingLandmarks);
-        
-        // Setup resize handling
-        const resizeObserver = setupResizeHandling(viewer, containerRef);
-        
-        // Set initial camera position
-        setInitialCameraPosition(viewer, cesium, humboldtCenter);
-        
-        setMapLoaded(true);
-
-        // Cleanup function
-        return () => {
-          if (resizeObserver) {
-            resizeObserver.disconnect();
-          }
-          document.body.style.cursor = 'default';
-          if (viewer) {
-            viewer.destroy();
-          }
-        };
-      } catch (error) {
-        console.error("Error initializing Cesium viewer:", error);
-        setErrorState("Failed to initialize 3D map viewer");
-      }
+    if (!process.env.NEXT_PUBLIC_CESIUM_TOKEN) {
+      console.error("Cesium Ion Token is missing. Check .env.local and restart the server.");
+      setErrorState("Falta el token de Cesium ion (NEXT_PUBLIC_CESIUM_TOKEN).");
+      return;
     }
-    
-    createViewer();
-  }, [cesium, containerRef, landmarks, humboldtCenter, setErrorState, setSelectedLandmark, setHoveredLandmark, setOverlappingLandmarks, preventPinOcclusion]);
+
+    let destroyViewer: (() => void) | undefined;
+    try {
+      destroyViewer = createViewer(cesium, container, landmarks, entityRefs, setSelectedLandmark, setHoveredLandmark, preventPinOcclusion, viewerRef);
+      setMapLoaded(true);
+    } catch (error) {
+      console.error("Error initializing Cesium viewer:", error);
+      setErrorState("No se pudo iniciar el mapa 3D");
+    }
+
+    return () => {
+      destroyViewer?.();
+      viewerRef.current = null;
+      entityRefs.current = {};
+      setMapLoaded(false);
+    };
+  }, [cesium, containerRef, landmarks, setErrorState, setSelectedLandmark, setHoveredLandmark, preventPinOcclusion]);
 
   return {
     mapLoaded,
@@ -114,57 +74,87 @@ export const useCesiumViewer = (
   };
 };
 
+/**
+ * Builds the viewer with its pins, clusters and input handlers. Returns a function that tears it all down.
+ */
+function createViewer(
+  cesium: any,
+  container: HTMLDivElement,
+  landmarks: MapLandmark[],
+  entityRefs: React.MutableRefObject<{ [id: string]: any }>,
+  setSelectedLandmark: (landmark: MapLandmark | null) => void,
+  setHoveredLandmark: (landmark: MapLandmark | null) => void,
+  preventPinOcclusion: boolean,
+  viewerRef: React.MutableRefObject<any>
+): () => void {
+  cesium.Ion.defaultAccessToken = process.env.NEXT_PUBLIC_CESIUM_TOKEN;
+
+  // Start on ArcGIS World Imagery and Cesium World Terrain. Choosing them here, rather than switching the
+  // base layer picker after creation, avoids loading a first set of imagery and terrain only to replace it.
+  const imageryProviderViewModels = cesium.createDefaultImageryProviderViewModels();
+  const terrainProviderViewModels = cesium.createDefaultTerrainProviderViewModels();
+
+  const viewer = new cesium.Viewer(container, {
+    ...VIEWER_CONFIG,
+    imageryProviderViewModels,
+    selectedImageryProviderViewModel: imageryProviderViewModels.find((model: any) => model.name === 'ArcGIS World Imagery'),
+    terrainProviderViewModels,
+    selectedTerrainProviderViewModel: terrainProviderViewModels.find((model: any) => model.name === 'Cesium World Terrain'),
+    creditContainer: document.createElement('div'), // Hide credits
+  });
+  viewerRef.current = viewer;
+
+  // Configure viewer settings
+  setupViewerSettings(viewer, preventPinOcclusion);
+
+  // Restyle the base layer picker
+  const pickerTimeout = customizeBaseLayerPickerUI();
+
+  // Add landmarks as billboards
+  addLandmarkBillboards(viewer, cesium, landmarks, preventPinOcclusion, entityRefs);
+
+  // Merge overlapping pins into cluster markers
+  const pinClusters = setupPinClusters(viewer, cesium, entityRefs, preventPinOcclusion);
+
+  // Setup event handlers
+  const handlers = setupEventHandlers(viewer, cesium, landmarks, setSelectedLandmark, setHoveredLandmark, pinClusters);
+
+  // Set initial camera position
+  setInitialCameraPosition(viewer, cesium);
+
+  return () => {
+    clearTimeout(pickerTimeout);
+    handlers.forEach(handler => handler.destroy());
+    pinClusters.destroy();
+    document.body.style.cursor = 'default';
+    viewer.destroy();
+  };
+}
+
 // Helper functions
-function setupViewerSettings(viewer: any, cesium: any, preventPinOcclusion: boolean) {
+function setupViewerSettings(viewer: any, preventPinOcclusion: boolean) {
+  // Render at the screen's real pixel density instead of CSS pixels, so pins and terrain aren't upscaled
+  // (and blurry) on high-density screens. Capped at 2x to keep phones with 3x screens fast.
+  viewer.useBrowserRecommendedResolution = false;
+  viewer.resolutionScale = Math.min(window.devicePixelRatio || 1, 2) / (window.devicePixelRatio || 1);
+
   viewer.scene.globe.enableLighting = SCENE_CONFIG.enableLighting;
   viewer.scene.skyBox = undefined;
   viewer.scene.sun = undefined;
   viewer.scene.moon = undefined;
   viewer.scene.globe.depthTestAgainstTerrain = !preventPinOcclusion;
-  viewer.scene.globe.terrainExaggeration = SCENE_CONFIG.terrainExaggeration;
+  viewer.scene.verticalExaggeration = SCENE_CONFIG.verticalExaggeration;
   viewer.scene.screenSpaceCameraController.enableCollisionDetection = SCENE_CONFIG.enableCollisionDetection;
   viewer.scene.screenSpaceCameraController.minimumZoomDistance = SCENE_CONFIG.minimumZoomDistance;
   viewer.scene.screenSpaceCameraController.maximumZoomDistance = SCENE_CONFIG.maximumZoomDistance;
 }
 
-function setupBaseLayerPicker(viewer: any) {
-  // Set terrain and imagery defaults
-  setTimeout(() => {
-    if (viewer.baseLayerPicker) {
-      const terrainProviderViewModels = viewer.baseLayerPicker.viewModel.terrainProviderViewModels;
-      const cesiumWorldTerrainModel = terrainProviderViewModels.find(
-        (model: any) => model.name === 'Cesium World Terrain'
-      );
-      
-      if (cesiumWorldTerrainModel) {
-        viewer.baseLayerPicker.viewModel.selectedTerrain = cesiumWorldTerrainModel;
-      }
-
-      const imageryProviderViewModels = viewer.baseLayerPicker.viewModel.imageryProviderViewModels;
-      const arcGISWorldImageryModel = imageryProviderViewModels.find(
-        (model: any) => model.name === 'ArcGIS World Imagery'
-      );
-      
-      if (arcGISWorldImageryModel) {
-        try {
-          viewer.baseLayerPicker.viewModel.selectedImagery = arcGISWorldImageryModel;
-        } catch (error) {
-          console.warn('Error setting ArcGIS World Imagery:', error);
-        }
-      }
-    }
-  }, 300);
-
-  // Customize UI
-  customizeBaseLayerPickerUI();
-}
-
 function customizeBaseLayerPickerUI() {
-  setTimeout(() => {
+  return setTimeout(() => {
     try {
       const baseLayerPickerContainer = document.querySelector('.cesium-viewer .cesium-baseLayerPicker-dropDown') as HTMLElement;
       const layerButton = document.querySelector('.cesium-viewer .cesium-toolbar-button') as HTMLElement;
-      
+
       if (baseLayerPickerContainer && baseLayerPickerContainer.parentElement) {
         const container = baseLayerPickerContainer.parentElement as HTMLElement;
         Object.assign(container.style, {
@@ -201,7 +191,7 @@ function customizeBaseLayerPickerUI() {
           transition: 'all 0.2s ease',
           boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
         });
-        
+
         layerButton.innerHTML = `
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
@@ -217,22 +207,24 @@ function customizeBaseLayerPickerUI() {
 }
 
 function addLandmarkBillboards(
-  viewer: any, 
-  cesium: any, 
-  landmarks: MapLandmark[], 
-  preventPinOcclusion: boolean, 
+  viewer: any,
+  cesium: any,
+  landmarks: MapLandmark[],
+  preventPinOcclusion: boolean,
   entityRefs: React.MutableRefObject<{ [id: string]: any }>
 ) {
   landmarks.forEach((landmark) => {
     const entity = new cesium.Entity({
-      position: cesium.Cartesian3.fromDegrees(landmark.lng, landmark.lat, landmark.height || 200),
+      // Height is meters above the ground, so pins sit over their site even with terrain exaggeration
+      position: cesium.Cartesian3.fromDegrees(landmark.lng, landmark.lat, landmark.height ?? 30),
       name: landmark.name,
       id: landmark.id,
       billboard: {
         image: createFallbackMarker(),
         width: MARKER_CONFIG.defaultSize,
         height: MARKER_CONFIG.defaultSize,
-        heightReference: preventPinOcclusion ? HeightReference.NONE : HeightReference.RELATIVE_TO_GROUND,
+        heightReference: HeightReference.RELATIVE_TO_GROUND,
+        // Never hidden behind hills when preventPinOcclusion is on
         disableDepthTestDistance: preventPinOcclusion ? Number.POSITIVE_INFINITY : undefined,
         verticalOrigin: VerticalOrigin.CENTER,
         horizontalOrigin: HorizontalOrigin.CENTER,
@@ -247,42 +239,51 @@ function addLandmarkBillboards(
 }
 
 function setupEventHandlers(
-  viewer: any, 
-  cesium: any, 
-  landmarks: MapLandmark[], 
+  viewer: any,
+  cesium: any,
+  landmarks: MapLandmark[],
   setSelectedLandmark: (landmark: MapLandmark | null) => void,
   setHoveredLandmark: (landmark: MapLandmark | null) => void,
-  setOverlappingLandmarks: (landmarks: MapLandmark[]) => void
+  pinClusters: ReturnType<typeof setupPinClusters>
 ) {
-  // Click handler. drillPick returns every pin under the cursor, not just the top one,
-  // so sites whose pins overlap (e.g. two pircas 30 m apart) can still be told apart.
+  // Click handler
   const clickHandler = new cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
   clickHandler.setInputAction((click: any) => {
-    const pickedIds = new Set(viewer.scene.drillPick(click.position, 10).map((picked: any) => picked.id?.id));
-    const clickedLandmarks = landmarks.filter(landmark => pickedIds.has(landmark.id));
+    const pickedObject = viewer.scene.pick(click.position);
+    const pickedEntity = cesium.defined(pickedObject) ? pickedObject.id : undefined;
 
-    if (clickedLandmarks.length > 1) {
-      click.preventDefault?.();
+    // Clicking a cluster fans its pins out
+    const clusterMembers = pinClusters.getClusterMembers(pickedEntity);
+    if (clusterMembers) {
       setSelectedLandmark(null);
-      setOverlappingLandmarks(clickedLandmarks);
-    } else if (clickedLandmarks.length === 1) {
+      pinClusters.explode(clusterMembers);
+      return;
+    }
+
+    const clickedLandmark = pickedEntity
+      ? landmarks.find(landmark => landmark.id === pickedEntity.id)
+      : undefined;
+
+    if (clickedLandmark) {
       click.preventDefault?.();
-      setOverlappingLandmarks([]);
-      setSelectedLandmark(clickedLandmarks[0]);
+      setSelectedLandmark(clickedLandmark);
     } else {
-      setOverlappingLandmarks([]);
+      pinClusters.collapse();
       setSelectedLandmark(null);
     }
   }, cesium.ScreenSpaceEventType.LEFT_CLICK);
 
-  // Hover handler
-  const hoverHandler = new cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-  hoverHandler.setInputAction((movement: any) => {
-    const pickedObject = viewer.scene.pick(movement.endPosition);
-    
-    if (cesium.defined(pickedObject) && pickedObject.id) {
+  // Hover handler. Picking renders an extra pass, so pick at most once per animation frame, at the latest
+  // pointer position, rather than on every mouse-move event.
+  const updateHover = (position: any) => {
+    const pickedObject = viewer.scene.pick(position);
+
+    if (cesium.defined(pickedObject) && pinClusters.getClusterMembers(pickedObject.id)) {
+      setHoveredLandmark(null);
+      document.body.style.cursor = 'pointer';
+    } else if (cesium.defined(pickedObject) && pickedObject.id) {
       const hoveredLandmarkData = landmarks.find(landmark => landmark.id === pickedObject.id.id);
-      
+
       if (hoveredLandmarkData) {
         setHoveredLandmark(hoveredLandmarkData);
         document.body.style.cursor = 'pointer';
@@ -294,40 +295,33 @@ function setupEventHandlers(
       setHoveredLandmark(null);
       document.body.style.cursor = 'default';
     }
-  }, cesium.ScreenSpaceEventType.MOUSE_MOVE);
-}
-
-function setupResizeHandling(viewer: any, containerRef: React.RefObject<HTMLDivElement>) {
-  const handleResize = () => {
-    if (containerRef.current && viewer) {
-      viewer.resize();
-      const { width, height } = containerRef.current.getBoundingClientRect();
-      viewer.scene.camera.frustum.aspectRatio = width / height;
-      viewer.scene.requestRender();
-    }
   };
-  
-  const resizeObserver = new ResizeObserver(handleResize);
-  if (containerRef.current) {
-    resizeObserver.observe(containerRef.current);
-  }
-  
-  return resizeObserver;
+
+  let pendingHoverPosition: any = null;
+  const hoverHandler = new cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+  hoverHandler.setInputAction((movement: any) => {
+    const alreadyScheduled = pendingHoverPosition !== null;
+    // Cesium reuses the movement object, so keep a copy
+    pendingHoverPosition = cesium.Cartesian2.clone(movement.endPosition);
+    if (alreadyScheduled) return;
+    requestAnimationFrame(() => {
+      const position = pendingHoverPosition;
+      pendingHoverPosition = null;
+      if (!viewer.isDestroyed()) updateHover(position);
+    });
+  }, cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
+  return [clickHandler, hoverHandler];
 }
 
-function setInitialCameraPosition(viewer: any, cesium: any, humboldtCenter: { lat: number; lng: number }) {
-  const centerPoint = cesium.Cartesian3.fromDegrees(
-    humboldtCenter.lng, 
-    humboldtCenter.lat,
-    DEFAULT_CAMERA_CONFIG.position.height
-  );
-  
+function setInitialCameraPosition(viewer: any, cesium: any) {
+  const { center, position, orientation } = DEFAULT_CAMERA_CONFIG;
   viewer.camera.setView({
-    destination: centerPoint,
+    destination: cesium.Cartesian3.fromDegrees(center.lng, center.lat, position.height),
     orientation: {
-      heading: cesium.Math.toRadians(DEFAULT_CAMERA_CONFIG.orientation.heading),
-      pitch: cesium.Math.toRadians(DEFAULT_CAMERA_CONFIG.orientation.pitch),
-      roll: DEFAULT_CAMERA_CONFIG.orientation.roll
+      heading: cesium.Math.toRadians(orientation.heading),
+      pitch: cesium.Math.toRadians(orientation.pitch),
+      roll: orientation.roll
     }
   });
 }

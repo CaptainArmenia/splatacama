@@ -1,8 +1,7 @@
-import type { Metadata } from "next/types";
+import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import "./cesium.css";
-import CesiumConfig from "@/components/CesiumConfig";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Splatacama - Archaeological 3D Reconstructions",
-  description: "Explore 3D reconstructions of archaeological sites in the Atacama Desert",
+  title: "Splatacama - Reconstrucciones 3D arqueológicas",
+  description: "Explora reconstrucciones 3D de sitios arqueológicos en el desierto de Atacama",
 };
 
 export default function RootLayout({
@@ -25,12 +24,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="es">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {/* CesiumConfig is a client component */}
-        <CesiumConfig />
         {children}
       </body>
     </html>

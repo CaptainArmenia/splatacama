@@ -2,17 +2,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 import CesiumCompass from './CesiumCompass';
 import { LandmarkInfoPanel } from './LandmarkInfoPanel';
-import { OverlappingLandmarksPanel } from './OverlappingLandmarksPanel';
 import { CameraPositionPanel } from './CameraPositionPanel';
 import { MapControls } from './MapControls';
 import { useCesiumViewer } from '@/hooks/useCesiumViewer';
 import { usePreviewUrls, useCameraPosition, useCanvasCache } from '@/hooks/useCesiumState';
 import { updateLandmarkVisualState, updateSpecificLandmarkMarker, resetCameraView } from '@/utils/cesiumMarkerManager';
+import { getCacheKey } from '@/utils/cesiumMarkers';
 import type { CesiumMapProps, MapLandmark } from '@/types/cesium';
 
 export default function CesiumMapComponent({
   landmarks,
-  humboldtCenter,
   selectedLandmark,
   setSelectedLandmark,
   setErrorState,
@@ -23,17 +22,14 @@ export default function CesiumMapComponent({
   const containerRef = useRef<HTMLDivElement>(null);
   const [showCameraPosition, setShowCameraPosition] = useState(initialShowCameraPosition);
   const [hoveredLandmark, setHoveredLandmark] = useState<MapLandmark | null>(null);
-  const [overlappingLandmarks, setOverlappingLandmarks] = useState<MapLandmark[]>([]);
 
   // Custom hooks
   const { mapLoaded, cesium, viewer, entityRefs } = useCesiumViewer(
     containerRef,
     landmarks,
-    humboldtCenter,
     setErrorState,
     setSelectedLandmark,
     setHoveredLandmark,
-    setOverlappingLandmarks,
     preventPinOcclusion
   );
 
@@ -80,58 +76,25 @@ export default function CesiumMapComponent({
     });
   }, [cesium, viewer, selectedLandmark, hoveredLandmark, entityRefs]);
 
-  // Handle marker updates when preview URLs change
-  useEffect(() => {
-    if (!cesium || !viewer) return;
-    
-    const prevUrls = prevPreviewUrlsRef.current;
-    const currentUrls = previewUrls.urls;
-    
-    // Only update landmarks whose preview URLs have actually changed
-    landmarks.forEach(landmark => {
-      const currentUrl = currentUrls[landmark.id];
-      const prevUrl = prevUrls[landmark.id];
-      
-      // Update if URL changed (new URL appeared or existing URL changed)
-      if (currentUrl && currentUrl !== prevUrl) {
-        // Clear old cache entries for this landmark to force recreation with new image
-        Object.keys(canvasCache.current).forEach(key => {
-          if (key.startsWith(`${landmark.id}_`)) {
-            delete canvasCache.current[key];
-          }
-        });
-        updateSpecificLandmarkMarker(
-          landmark,
-          entityRefs,
-          previewUrls.urls,
-          canvasCache,
-          selectedLandmark,
-          hoveredLandmark,
-          viewer
-        );
-      }
-    });
-    
-    // Update the reference for next comparison
-    prevPreviewUrlsRef.current = { ...currentUrls };
-  }, [previewUrls.urls, landmarks, cesium, viewer, entityRefs, canvasCache, selectedLandmark, hoveredLandmark]);
-
-  // Load initial markers after Cesium is ready
+  // Put each landmark's photo on its pin once the map is ready, and again if its pin image URL changes.
+  // Pins start with the orange fallback marker (see addLandmarkBillboards).
   useEffect(() => {
     if (!cesium || !viewer || !mapLoaded) return;
     
+    const prevUrls = prevPreviewUrlsRef.current;
+    const currentUrls = previewUrls.pinUrls;
+    
     landmarks.forEach(landmark => {
-      updateSpecificLandmarkMarker(
-        landmark,
-        entityRefs,
-        previewUrls.urls,
-        canvasCache,
-        selectedLandmark,
-        hoveredLandmark,
-        viewer
-      );
+      const currentUrl = currentUrls[landmark.id];
+      if (!currentUrl || currentUrl === prevUrls[landmark.id]) return;
+
+      // Drop the cached photo marker so it's rebuilt from the new URL
+      delete canvasCache.current[getCacheKey(landmark.id, true)];
+      updateSpecificLandmarkMarker(landmark, entityRefs, previewUrls, canvasCache, viewer);
     });
-  }, [cesium, viewer, mapLoaded, landmarks, entityRefs, previewUrls.urls, canvasCache, selectedLandmark, hoveredLandmark]);
+    
+    prevPreviewUrlsRef.current = { ...currentUrls };
+  }, [cesium, viewer, mapLoaded, landmarks, previewUrls, entityRefs, canvasCache]);
 
   // Event handlers
   const handleToggleCameraPosition = () => {
@@ -139,16 +102,23 @@ export default function CesiumMapComponent({
   };
 
   const handleResetView = () => {
-    resetCameraView(viewer, cesium, humboldtCenter);
+    resetCameraView(viewer, cesium);
   };
 
   const handleViewScene = (landmarkId: string) => {
     window.location.href = `/scene/${landmarkId}`;
   };
 
-  // Return loading state or null if Cesium isn't ready
+  // Same spinner as the one MapWithPins shows while this component loads
   if (!cesium && typeof window !== 'undefined') {
-    return <div>Loading Cesium...</div>; 
+    return (
+      <div className="h-full w-full flex items-center justify-center bg-white">
+        <div className="text-center">
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-orange-500 border-r-transparent align-[-0.125em]" />
+          <p className="mt-2">Cargando mapa 3D...</p>
+        </div>
+      </div>
+    );
   }
   
   if (typeof window === 'undefined') {
@@ -164,7 +134,7 @@ export default function CesiumMapComponent({
       
       {/* Loading indicator */}
       {!mapLoaded && (
-        <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-70">
+        <div className="absolute inset-0 flex items-center justify-center bg-white/70">
           <div className="text-center">
             <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-orange-500 border-r-transparent align-[-0.125em]" />
             <p className="mt-2">Cargando terreno 3D...</p>
@@ -177,24 +147,11 @@ export default function CesiumMapComponent({
         <CesiumCompass viewer={viewer} cesium={cesium} />
       )}
       
-      {/* Chooser for pins stacked on top of each other */}
-      {overlappingLandmarks.length > 1 && (
-        <OverlappingLandmarksPanel
-          landmarks={overlappingLandmarks}
-          previewUrls={previewUrls}
-          onSelect={(landmark) => {
-            setOverlappingLandmarks([]);
-            setSelectedLandmark(landmark);
-          }}
-          onClose={() => setOverlappingLandmarks([])}
-        />
-      )}
-
       {/* Landmark info panel */}
       {selectedLandmark && (
         <LandmarkInfoPanel
           selectedLandmark={selectedLandmark}
-          previewUrls={previewUrls}
+          previewUrl={previewUrls.urls[selectedLandmark.id]}
           onClose={() => setSelectedLandmark(null)}
           onViewScene={handleViewScene}
         />

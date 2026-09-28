@@ -1,10 +1,10 @@
 'use client';
 import { getBlobUrl } from '@/utils/blobUtils';
 import { useState, useEffect } from 'react';
-import { Landmark } from '@/types/landmarkTypes';
+import type { MapLandmark } from '@/types/cesium';
 
 interface ToggleableInfoPanelProps {
-  landmark: Landmark;
+  landmark: MapLandmark;
 }
 
 export default function ToggleableInfoPanel({ landmark }: ToggleableInfoPanelProps) {
@@ -42,7 +42,7 @@ export default function ToggleableInfoPanel({ landmark }: ToggleableInfoPanelPro
       {/* Toggle button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-2 bg-black bg-opacity-70 hover:bg-opacity-80 transition-all px-3 py-2 rounded-full text-white text-xs sm:text-sm ${isOpen ? 'bg-orange-600' : ''}`}
+        className={`flex items-center gap-2 transition-all px-3 py-2 rounded-full text-white text-xs sm:text-sm ${isOpen ? 'bg-orange-600 hover:bg-orange-700' : 'bg-black/70 hover:bg-black/80'}`}
         aria-expanded={isOpen}
       >
         <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 sm:h-4 sm:w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -53,11 +53,11 @@ export default function ToggleableInfoPanel({ landmark }: ToggleableInfoPanelPro
 
       {/* Info panel - using the same styling as the landmark panel in map view but wider */}
       {isOpen && (
-        <div className="absolute bottom-14 left-0 z-30 bg-gray-900 bg-opacity-90 rounded-md shadow-md border border-gray-700 text-white overflow-hidden min-w-[280px] w-[90vw] max-w-sm md:max-w-md lg:max-w-lg lg:w-auto">
+        <div className="absolute bottom-14 left-0 z-30 bg-gray-900/90 rounded-md shadow-md border border-gray-700 text-white overflow-hidden min-w-[280px] w-[90vw] max-w-sm md:max-w-md lg:max-w-lg lg:w-auto">
           {/* Close button - positioned absolutely in the corner */}
           <button 
             onClick={() => setIsOpen(false)}
-            className="absolute top-2 right-2 z-50 bg-black bg-opacity-60 hover:bg-opacity-80 text-white rounded-full w-7 h-7 flex items-center justify-center transition-colors"
+            className="absolute top-2 right-2 z-50 bg-black/60 hover:bg-black/80 text-white rounded-full w-7 h-7 flex items-center justify-center transition-colors"
             aria-label="Cerrar"
           >
             <span className="sr-only">Cerrar</span>
@@ -91,7 +91,7 @@ export default function ToggleableInfoPanel({ landmark }: ToggleableInfoPanelPro
                     onError={() => setHasError(true)}
                   />
                   <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-start">
-                    <h3 className="font-bold text-xl text-white-400 drop-shadow-md p-4">
+                    <h3 className="font-bold text-xl text-white drop-shadow-md p-4">
                       {landmark.name}
                     </h3>
                   </div>

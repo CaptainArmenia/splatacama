@@ -7,11 +7,12 @@ export interface MapLandmark {
   description: string;
   gsplatUrl: string;
   previewUrl?: string;
+  // Small image for the map pin; the pin falls back to previewUrl if it's missing or fails to load
+  thumbnailUrl?: string;
 }
 
 export interface CesiumMapProps {
   landmarks: MapLandmark[];
-  humboldtCenter: { lat: number; lng: number };
   selectedLandmark: MapLandmark | null;
   setSelectedLandmark: (landmark: MapLandmark | null) => void;
   setErrorState: (error: string | null) => void;
@@ -28,7 +29,6 @@ export interface CameraPosition {
 }
 
 export interface PreviewUrlsState {
-  urls: { [id: string]: string };
-  loading: { [id: string]: boolean };
-  errors: { [id: string]: boolean };
+  urls: { [id: string]: string };     // preview images, for the info panels
+  pinUrls: { [id: string]: string };  // thumbnails for pins, or the preview when there's no thumbnail
 }

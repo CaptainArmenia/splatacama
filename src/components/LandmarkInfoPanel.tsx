@@ -1,29 +1,30 @@
-import React from 'react';
-import type { MapLandmark, PreviewUrlsState } from '@/types/cesium';
+import React, { useState } from 'react';
+import type { MapLandmark } from '@/types/cesium';
 
 interface LandmarkInfoPanelProps {
   selectedLandmark: MapLandmark;
-  previewUrls: PreviewUrlsState;
+  previewUrl?: string;
   onClose: () => void;
   onViewScene: (landmarkId: string) => void;
 }
 
 export const LandmarkInfoPanel: React.FC<LandmarkInfoPanelProps> = ({
   selectedLandmark,
-  previewUrls,
+  previewUrl,
   onClose,
   onViewScene
 }) => {
-  const isLoading = previewUrls.loading[selectedLandmark.id];
-  const hasError = previewUrls.errors[selectedLandmark.id];
-  const previewUrl = previewUrls.urls[selectedLandmark.id];
+  // The URL whose image failed to load, if any; a new selection gets a fresh try
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const isLoading = !previewUrl;
+  const hasError = !!previewUrl && failedUrl === previewUrl;
 
   return (
-    <div className="absolute top-4 left-4 z-30 bg-gray-900 bg-opacity-90 rounded-md shadow-md border border-gray-700 text-white overflow-hidden max-w-xs md:max-w-sm">
+    <div className="absolute top-4 left-4 z-30 bg-gray-900/90 rounded-md shadow-md border border-gray-700 text-white overflow-hidden max-w-xs md:max-w-sm">
       {/* Close button */}
       <button 
         onClick={onClose}
-        className="absolute top-2 right-2 z-50 bg-black bg-opacity-60 hover:bg-opacity-80 text-white rounded-full w-7 h-7 flex items-center justify-center transition-colors"
+        className="absolute top-2 right-2 z-50 bg-black/60 hover:bg-black/80 text-white rounded-full w-7 h-7 flex items-center justify-center transition-colors"
         aria-label="Cerrar"
       >
         <span className="sr-only">Cerrar</span>
@@ -56,6 +57,7 @@ export const LandmarkInfoPanel: React.FC<LandmarkInfoPanelProps> = ({
                 className="w-full h-full object-cover"
                 onError={() => {
                   console.error(`Error loading image for ${selectedLandmark.id}`);
+                  setFailedUrl(previewUrl ?? null);
                 }}
               />
               <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-start">

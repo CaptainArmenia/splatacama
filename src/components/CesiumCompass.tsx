@@ -69,7 +69,7 @@ export default function CesiumCompass({ viewer, cesium }: CesiumCompassProps) {
   }, [viewer, cesium]);
   
   return (
-    <div className="absolute top-4 right-4 z-10 bg-gray-900 bg-opacity-70 rounded-full p-2 shadow-lg pointer-events-auto">
+    <div className="absolute top-4 right-4 z-10 bg-gray-900/70 rounded-full p-2 shadow-lg pointer-events-auto">
       <div 
         ref={compassRef} 
         className="relative w-14 h-14"
@@ -87,9 +87,9 @@ export default function CesiumCompass({ viewer, cesium }: CesiumCompassProps) {
           <div className="absolute left-1 top-1/2 transform -translate-y-1/2 w-1 h-1 bg-white rounded-sm"></div>
           {/* Cardinal directions */}
           <span className="absolute top-2 left-1/2 transform -translate-x-1/2 text-xs font-bold text-red-500">N</span>
-          <span className="absolute bottom-2 left-1/2 transform -translate-x-1/2 text-xs font-bold text-white-500">S</span>
-          <span className="absolute top-1/2 right-2 transform -translate-y-1/2 text-xs font-bold text-white-500">E</span>
-          <span className="absolute top-1/2 left-2 transform -translate-y-1/2 text-xs font-bold text-white-500">O</span>
+          <span className="absolute bottom-2 left-1/2 transform -translate-x-1/2 text-xs font-bold text-white">S</span>
+          <span className="absolute top-1/2 right-2 transform -translate-y-1/2 text-xs font-bold text-white">E</span>
+          <span className="absolute top-1/2 left-2 transform -translate-y-1/2 text-xs font-bold text-white">O</span>
         </div>
       </div>
     </div>

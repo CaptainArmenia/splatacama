@@ -6,40 +6,42 @@ Audited on 2026-09-27 at commit `1d6a321`. Covers everything in `src/`, the conf
 
 Items are numbered so they can be referenced in commits ("fixes audit #5"). Check an item off when it's done.
 
+**Status on 2026-09-28:** 19 of 23 items are done. Four are partly done and each needs something outside the code: #3 (a CORS rule on the R2 bucket), #11 (upload the thumbnails), #17 (revoke the old Cesium token) and #20 (tests and strict TypeScript).
+
 ## Summary
 
 | # | Severity | Area | Finding |
 | --- | --- | --- | --- |
-| 1 | Critical | Security | Next.js 15.3.1 has a remote code execution vulnerability |
-| 2 | High | Security | Image proxy fetches and serves any URL containing "cloudflare" |
-| 3 | High | Performance | Every `.splat` file is downloaded in full by a server function before it reaches the browser |
-| 4 | High | Security | 152 dependency advisories, most from packages the code never uses |
-| 5 | Medium | Bug | Cesium viewer is never destroyed, and a second one can be created on top of the first |
-| 6 | Medium | Bug | Splat viewer can load twice and restart after it was torn down |
-| 7 | Medium | Bug | Terrain exaggeration setting is ignored |
-| 8 | Medium | Bug | Semi-transparent panels render solid; compass letters are nearly invisible |
-| 9 | Medium | Performance | Map imagery and terrain are loaded, thrown away, and loaded again at startup |
-| 10 | Medium | Performance | The map redraws continuously and runs a pick on every mouse move |
-| 11 | Medium | Performance | Pins and panels use full-size photos (unverified for the live files) |
-| 12 | Medium | Maintenance | Cross-origin isolation headers are set, but the feature they enable is turned off |
+| 1 | ~~Critical~~ Done | Security | Next.js 15.3.1 has a remote code execution vulnerability |
+| 2 | ~~High~~ Done | Security | Image proxy fetches and serves any URL containing "cloudflare" |
+| 3 | High (partly done) | Performance | Every `.splat` file is downloaded in full by a server function before it reaches the browser |
+| 4 | ~~High~~ Done | Security | 152 dependency advisories, most from packages the code never uses |
+| 5 | ~~Medium~~ Done | Bug | Cesium viewer is never destroyed, and a second one can be created on top of the first |
+| 6 | ~~Medium~~ Done | Bug | Splat viewer can load twice and restart after it was torn down |
+| 7 | ~~Medium~~ Done | Bug | Terrain exaggeration setting is ignored |
+| 8 | ~~Medium~~ Done | Bug | Semi-transparent panels render solid; compass letters are nearly invisible |
+| 9 | ~~Medium~~ Done | Performance | Map imagery and terrain are loaded, thrown away, and loaded again at startup |
+| 10 | ~~Medium~~ Done | Performance | The map redraws continuously and runs a pick on every mouse move |
+| 11 | Medium (partly done) | Performance | Pins and panels use full-size photos (unverified for the live files) |
+| 12 | ~~Medium~~ Done | Maintenance | Cross-origin isolation headers are set, but the feature they enable is turned off |
 | 13 | ~~Medium~~ Done | Content | All 11 map pins are placeholders for the same scene |
-| 14 | Low | Bug | Unknown scene id returns a 200 page instead of a 404 |
-| 15 | Low | Accessibility | Page language is `en` but the interface is Spanish; some visible strings are English |
-| 16 | Low | Maintenance | Unused and misplaced dependencies |
-| 17 | Low | Maintenance | Dead code and leftover files, including a hardcoded Cesium ion token |
-| 18 | Low | Maintenance | Values and types defined twice |
-| 19 | Low | Build | Build copies Cesium assets on every compilation and transpiles all of Cesium |
-| 20 | Low | Tooling | No lint, no tests, loose TypeScript, and hand-written types that override React's |
-| 21 | Low | Bug | Splat format detection depends on the URL happening to end in `.splat` |
-| 22 | Low | Performance | Every hover and selection re-applies all pin images |
-| 23 | Low | UI | Small layout and code issues |
+| 14 | ~~Low~~ Done | Bug | Unknown scene id returns a 200 page instead of a 404 |
+| 15 | ~~Low~~ Done | Accessibility | Page language is `en` but the interface is Spanish; some visible strings are English |
+| 16 | ~~Low~~ Done | Maintenance | Unused and misplaced dependencies |
+| 17 | Low (partly done) | Maintenance | Dead code and leftover files, including a hardcoded Cesium ion token |
+| 18 | ~~Low~~ Done | Maintenance | Values and types defined twice |
+| 19 | ~~Low~~ Done | Build | Build copies Cesium assets on every compilation and transpiles all of Cesium |
+| 20 | Low (partly done) | Tooling | No lint, no tests, loose TypeScript, and hand-written types that override React's |
+| 21 | ~~Low~~ Done | Bug | Splat format detection depends on the URL happening to end in `.splat` |
+| 22 | ~~Low~~ Done | Performance | Every hover and selection re-applies all pin images |
+| 23 | ~~Low~~ Done | UI | Small layout and code issues |
 
 ---
 
 ## Critical
 
 ### 1. Next.js 15.3.1 has a remote code execution vulnerability
-- [ ] Done
+- [x] Done (2026-09-28): upgraded to 15.5.26 in `ba743fc`. `pnpm audit --prod` now reports no Next.js advisories. Vercel had started refusing to deploy 15.3.1 ("Vulnerable version of Next.js detected").
 
 **Where:** `package.json:24`
 
@@ -50,7 +52,9 @@ Items are numbered so they can be referenced in commits ("fixes audit #5"). Chec
 ## High
 
 ### 2. Image proxy fetches and serves any URL containing "cloudflare"
-- [ ] Done
+- [x] Done (2026-09-28)
+
+**Resolved:** Both the client and the route now use `isR2AssetUrl()` (`src/utils/blobUtils.ts`): https only, with an exact host match against the R2 domain. Only JPEG, PNG, WebP, GIF and AVIF keep their type; everything else is sent as `application/octet-stream`, with `nosniff`. The site-wide CORS headers are gone. Tested: the audit's example URL, plain http, userinfo tricks, the domain in a query string and an internal address all return 400.
 
 **Where:** `src/app/api/image-proxy/route.ts:13`, `:30`; `next.config.js:78`
 
@@ -61,7 +65,9 @@ For example, `/api/image-proxy?url=https://attacker.example/page.html?cloudflare
 **Fix:** parse the URL with `new URL()`, require `https:` and an exact hostname match against the R2 domain (read from a server-side environment variable), and only pass through `image/*` and `application/octet-stream`. Add `X-Content-Type-Options: nosniff`. Better still, remove the proxy (see #3). This was confirmed by reading the code; it was not tried against production.
 
 ### 3. Every `.splat` file is downloaded in full by a server function before it reaches the browser
-- [ ] Done
+- [ ] Partly done (2026-09-28)
+
+**Progress:** The proxy now streams the body instead of buffering it, passes `Content-Length` through (so the splat viewer shows download progress), and sets `s-maxage` so the CDN can cache responses. **Still to do (needs the Cloudflare dashboard):** add a CORS rule on the R2 bucket allowing `GET` from the site's origin, then load R2 URLs directly and delete the proxy.
 
 **Where:** `src/utils/blobUtils.ts:12`, `:34`; `src/app/api/image-proxy/route.ts:29`
 
@@ -77,7 +83,9 @@ The response also sets `Cache-Control: public, max-age=86400` without `s-maxage`
 **Fix:** set a CORS policy on the R2 bucket that allows `GET` from the site's origin, then load R2 URLs directly and delete the proxy. If the proxy has to stay, stream `response.body` instead of buffering it.
 
 ### 4. 152 dependency advisories, most from packages the code never uses
-- [ ] Done
+- [x] Done (2026-09-28)
+
+**Resolved:** Unused packages removed and Cesium upgraded to 1.145. `pnpm audit --prod` went from 152 advisories (7 critical) to 7 (0 critical). The 7 left are in the copy of `postcss` and `nanoid` that Next.js bundles for its build step; they go away when Next.js updates them. Cesium 1.145 brings in an SPZ loader whose embedded WebAssembly breaks the production minifier, so `next.config.js` aliases it to an empty module.
 
 **Where:** `package.json`
 
@@ -95,7 +103,9 @@ Cesium 1.128 brings `protobufjs` (1 critical, arbitrary code execution) and `dom
 ## Medium
 
 ### 5. Cesium viewer is never destroyed, and a second one can be created on top of the first
-- [ ] Done
+- [x] Done (2026-09-28)
+
+**Resolved:** The viewer is now created synchronously and the effect returns its teardown: input handlers destroyed, cluster updates stopped, `viewer.destroy()`. `MapWithPins` imports `landmarks.json` statically, so the list never changes after the first render.
 
 **Where:** `src/hooks/useCesiumViewer.ts:45`–`106`; `src/components/MapWithPins.tsx:37`; `src/components/CesiumMapComponent.tsx:143`
 
@@ -110,7 +120,9 @@ For now, the full-page navigation to scenes (`window.location.href`, `CesiumMapC
 **Fix:** keep a `cancelled` flag in the effect, destroy the viewer and handlers in the effect's cleanup, and import `landmarks.json` statically so the list never changes after mount.
 
 ### 6. Splat viewer can load twice and restart after it was torn down
-- [ ] Done
+- [x] Done (2026-09-28)
+
+**Resolved:** The effect depends only on `url` and `backgroundColor`, `start()` is skipped after unmount, and teardown uses the library's `dispose()`. The unused WebXR check is gone.
 
 **Where:** `src/components/GSplatViewer.tsx:227`, `:146`, `:160`–`215`
 
@@ -123,7 +135,9 @@ The hand-written teardown also never stops the library's sorting web worker. The
 **Fix:** remove `isXRCompatible` (and `onError`) from the effect's dependencies, guard `viewer.start()` with `isMounted`, and replace the manual teardown with `await viewer.dispose()`.
 
 ### 7. Terrain exaggeration setting is ignored
-- [ ] Done
+- [x] Done (2026-09-28)
+
+**Resolved:** Now uses `scene.verticalExaggeration` (1.5). Checking pins against the ground showed they were 18–84 m underground, so pins, cluster markers and the explode dot now use `HeightReference.RELATIVE_TO_GROUND`. `height` in `landmarks.json` now means meters above the ground (30).
 
 **Where:** `src/hooks/useCesiumViewer.ts:123`; `src/constants/cesiumConfig.ts:43`
 
@@ -132,7 +146,9 @@ The code sets `viewer.scene.globe.terrainExaggeration = 1.5`. Cesium 1.128's `Gl
 Pins are placed at absolute heights (`landmark.height`, 100 m, `useCesiumViewer.ts:227`), so enabling exaggeration will change how pins line up with the ground. Check both together.
 
 ### 8. Semi-transparent panels render solid; compass letters are nearly invisible
-- [ ] Done
+- [x] Done (2026-09-28)
+
+**Resolved:** Every `bg-opacity-*` now uses the slash syntax (`bg-black/70`), `text-white-500` is `text-white`, `pb-safe` is `pb-[env(safe-area-inset-bottom)]`, and `tailwind.config.js` is deleted.
 
 **Where:** many components; `src/components/CesiumCompass.tsx:90`–`92`; `src/app/scene/[id]/page.tsx:45`; `tailwind.config.js`
 
@@ -144,7 +160,9 @@ Tailwind 4 removed the `bg-opacity-*` utilities. None of them appear in the buil
 **Fix:** use the slash syntax (`bg-black/70`, `bg-gray-900/90`), `text-white`, and `pb-[env(safe-area-inset-bottom)]`. Delete `tailwind.config.js`.
 
 ### 9. Map imagery and terrain are loaded, thrown away, and loaded again at startup
-- [ ] Done
+- [x] Done (2026-09-28)
+
+**Resolved:** ArcGIS World Imagery and Cesium World Terrain are selected in the `Viewer` constructor. Verified: one imagery layer and no requests for the Sentinel-2 asset.
 
 **Where:** `src/hooks/useCesiumViewer.ts:57`, `:63`, `:155`
 
@@ -153,7 +171,9 @@ The viewer is created with a terrain provider (`createWorldTerrainAsync`) and Ce
 **Fix:** pass `selectedImageryProviderViewModel` and `selectedTerrainProviderViewModel` to the `Viewer` constructor, taken from the default view-model lists, and drop `baseLayer`, `terrainProvider`, and the `setTimeout`.
 
 ### 10. The map redraws continuously and runs a pick on every mouse move
-- [ ] Done
+- [x] Done (2026-09-28)
+
+**Resolved:** `requestRenderMode` is on (0 frames drawn in 3 idle seconds, down from about 180). Everything that changes pins or clusters calls `scene.requestRender()`, and hover picking runs at most once per animation frame.
 
 **Where:** `src/constants/cesiumConfig.ts` (`VIEWER_CONFIG`); `src/hooks/useCesiumViewer.ts:274`–`291`
 
@@ -162,7 +182,9 @@ Without `requestRenderMode: true`, Cesium redraws the globe every frame even whe
 **Fix:** enable `requestRenderMode` and call `requestRender()` after pin changes. Throttle hover picking, for example once per animation frame.
 
 ### 11. Pins and panels use full-size photos (unverified for the live files)
-- [ ] Done
+- [ ] Partly done (2026-09-28)
+
+**Progress:** Landmarks can have a `thumbnailUrl` for the pin, falling back to `previewUrl` if it's missing or fails to load. 160 px thumbnails (about 10 KB each) and a 1024 px `pirca0_preview.jpg` (426 KB, replacing the 2.3 MB original) are in `~/datasets/pircas-work/output/`. **Still to do:** upload `pirca*_thumb.jpg` to R2 and replace `pirca0_preview.jpg` there. Until then pins keep using the previews.
 
 **Where:** `src/utils/cesiumMarkers.ts`; `src/components/LandmarkInfoPanel.tsx`
 
@@ -171,7 +193,9 @@ Each pin is drawn by loading the landmark's `previewUrl` into a new `Image` and 
 **Fix:** store small thumbnails for pins (about 128 px) and medium previews for panels (about 800 px), and add fields for them in `landmarks.json`.
 
 ### 12. Cross-origin isolation headers are set, but the feature they enable is turned off
-- [ ] Done
+- [x] Done (2026-09-28)
+
+**Resolved:** Removed the cross-origin isolation headers and the site-wide CORS headers. Only `Cache-Control` on `/cesium/*` is left.
 
 **Where:** `next.config.js:78`–`170`; `src/components/GSplatViewer.tsx:117`
 
@@ -190,19 +214,23 @@ Every entry uses the same `pirca.splat`, the same preview, and the same descript
 
 **Fix:** mark placeholders or hide them until each has its own capture. Remove the duplicate.
 
-**Resolved:** the placeholders `pirca1`–`pirca10` were removed. `pirca0` is back at its original coordinates (−28.955, −71.476), next to the three new drone captures `pirca11`–`pirca13`. Pins that overlap now open a chooser instead of hiding one site.
+**Resolved:** the placeholders `pirca1`–`pirca10` were removed. `pirca0` is back at its original coordinates (−28.955, −71.476), next to the three new drone captures `pirca11`–`pirca13`. Pins that overlap now merge into a numbered cluster that fans out when clicked, instead of hiding one site.
 
 ## Low
 
 ### 14. Unknown scene id returns a 200 page instead of a 404
-- [ ] Done
+- [x] Done (2026-09-28)
+
+**Resolved:** Unknown ids call `notFound()`, which returns a real 404 with a Spanish page (`src/app/not-found.tsx`). `generateStaticParams()` prebuilds the scene pages.
 
 **Where:** `src/app/scene/[id]/page.tsx:18`
 
 The "Landmark not found" branch returns a normal page, so search engines and link checkers see a success. Call `notFound()` instead. Since the landmark list is static, `generateStaticParams()` would also let the scene pages be built ahead of time instead of rendered on every request (the build currently lists `/scene/[id]` as dynamic).
 
 ### 15. Page language is `en` but the interface is Spanish; some visible strings are English
-- [ ] Done
+- [x] Done (2026-09-28)
+
+**Resolved:** `<html lang="es">`, Spanish title and description, and the English strings translated.
 
 **Where:** `src/app/layout.tsx:18`, `:28`; `src/components/CesiumMapComponent.tsx:148`; `src/components/GSplatViewer.tsx:270`; `src/hooks/useCesiumViewer.ts` (error messages)
 
@@ -212,7 +240,9 @@ The "Landmark not found" branch returns a normal page, so search engines and lin
 - the error messages "Cesium Ion Token is missing…", "Failed to initialize 3D map viewer", and "Error loading 3D map components"
 
 ### 16. Unused and misplaced dependencies
-- [ ] Done
+- [x] Done (2026-09-28)
+
+**Resolved:** Removed the twelve unused packages, `vercel`, and `fs-extra` (only the deleted copy script used it). `@types/three` moved to `devDependencies`. The app now has 6 runtime dependencies.
 
 **Where:** `package.json`
 
@@ -221,7 +251,9 @@ Never imported: `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner`, `@deck.gl
 `vercel` is the command-line tool and shouldn't be a runtime dependency. `@types/three` belongs in `devDependencies`. Removing these speeds up installs and clears most of #4.
 
 ### 17. Dead code and leftover files, including a hardcoded Cesium ion token
-- [ ] Done
+- [ ] Partly done (2026-09-28)
+
+**Progress:** Deleted: `cesiumLoader.ts`, `cesiumConfig.js`, the `CesiumConfig` component, `copyAssets.js`, `next.config.ts`, the empty root files, the unused images and SVGs, and `tailwind.config.js`. Removed the unused state, props, imports and config, and the never-reachable loading and error states. **Still to do (in Cesium ion):** revoke the token that was hardcoded in `cesiumLoader.ts` (it's in git history), and restrict `NEXT_PUBLIC_CESIUM_TOKEN` to the site's domains.
 
 - `src/utils/cesiumLoader.ts` is never imported. Line 35 hardcodes a fallback Cesium ion token, which is also in git history. If it's your token, revoke it in Cesium ion.
 - `src/utils/cesiumConfig.js:17`–`33` does nothing. It reads `window.Cesium`, which nothing sets. It also sends `Cross-Origin-Resource-Policy` as a request header, but that's a response header, so sending it has no effect.
@@ -240,7 +272,9 @@ Never imported: `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner`, `@deck.gl
 - The `NEXT_PUBLIC_CESIUM_TOKEN` value ships to every browser by design. Restrict it to the site's domains in Cesium ion's token settings.
 
 ### 18. Values and types defined twice
-- [ ] Done
+- [x] Done (2026-09-28)
+
+**Resolved:** `landmarkTypes.ts` is gone and everything uses `MapLandmark`. The splat camera start is a shared constant. `CESIUM_BASE_URL` comes only from `DefinePlugin`. The map center lives in `DEFAULT_CAMERA_CONFIG.center`. The resize observer is removed, since Cesium resizes itself.
 
 - `Landmark` (`src/types/landmarkTypes.ts`) and `MapLandmark` (`src/types/cesium.ts`) are identical.
 - The splat camera start `[7, -2.5, 5]` appears both in the viewer options and in `resetCamera()` in `GSplatViewer.tsx`.
@@ -249,14 +283,18 @@ Never imported: `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner`, `@deck.gl
 - The resize observer in `useCesiumViewer.ts` repeats what Cesium already does each frame.
 
 ### 19. Build copies Cesium assets on every compilation and transpiles all of Cesium
-- [ ] Done
+- [x] Done (2026-09-28)
+
+**Resolved:** The Cesium asset copy runs only in the client compilation. `transpilePackages` and `externalDir` are removed. A local production build takes about 15 s.
 
 **Where:** `next.config.js:56`, `:178`
 
 `CopyWebpackPlugin` is added to every webpack compilation (client and server, and on every dev rebuild), so Cesium's asset folders are copied into `public/cesium/` repeatedly. `transpilePackages: ['cesium']` makes webpack run all of Cesium through the compiler, which Cesium's ES module build likely doesn't need. The effect on build time wasn't measured. `experimental.externalDir` isn't needed either.
 
 ### 20. No lint, no tests, loose TypeScript, and hand-written types that override React's
-- [ ] Done
+- [ ] Partly done (2026-09-28)
+
+**Progress:** ESLint is back: `pnpm lint` runs `eslint .` with 0 errors and 0 warnings, and `next build` lints again. `no-explicit-any` is off on purpose (see CLAUDE.md). `src/env.d.ts` and its type overrides are deleted, and `tsconfig.json` uses Next.js's standard settings (`moduleResolution: "bundler"`). **Not done:** there's still no test suite, and `strict` is still off.
 
 - `pnpm lint` (`package.json:9`) fails because ESLint was removed. `next build` skips linting too.
 - There are no tests.
@@ -264,21 +302,27 @@ Never imported: `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner`, `@deck.gl
 - `src/env.d.ts:13`–`30` redeclares parts of React's own types (`ReactNode`, `ReactElement`, with `ReactPortal = any`), and `:47` redeclares `next/font/google`. Looser hand-written types replace the real ones, which hides type errors.
 
 ### 21. Splat format detection depends on the URL happening to end in `.splat`
-- [ ] Done
+- [x] Done (2026-09-28)
+
+**Resolved:** The scene definition passes `format: SceneFormat.Splat`.
 
 **Where:** `src/components/GSplatViewer.tsx` (scene definition)
 
 The splat library picks the file format from the URL's ending (`sceneFormatFromPath`). The proxied URL (`/api/image-proxy?url=…%2Fpirca.splat`) happens to end in `.splat`, so it works. Adding any query parameter, such as a cache-buster, would break loading. Pass `format: GaussianSplats3D.SceneFormat.Splat` explicitly.
 
 ### 22. Every hover and selection re-applies all pin images
-- [ ] Done
+- [x] Done (2026-09-28)
+
+**Resolved:** Replaced by one effect that applies pin photos when the map is ready and when a pin image URL changes. It doesn't depend on hover or selection.
 
 **Where:** `src/components/CesiumMapComponent.tsx:116`
 
 The "load initial markers" effect depends on `selectedLandmark` and `hoveredLandmark`, so every hover change loops over all landmarks and sets each pin's image and scale again. When preview URLs change, this effect and the one above it can both build the same pin canvas at the same time. Run the initial marker load only once, when the map loads and preview URLs are ready.
 
 ### 23. Small layout and code issues
-- [ ] Done
+- [x] Done (2026-09-28)
+
+**Resolved:** The camera readout sits bottom-left on every screen size. The info toggle has a single background per state. `new ImageryLayer.fromProviderAsync` is gone, since #9 removed it. The interim loading state uses the same Spanish spinner.
 
 - On phones, the camera position panel (`CameraPositionPanel.tsx:16`, `fixed top-4 right-4`, `z-50`) covers the compass (`CesiumCompass.tsx:72`, also top-right).
 - The open info toggle in `ToggleableInfoPanel.tsx` has both `bg-black` and `bg-orange-600`. Which color shows depends on CSS order, not on intent.

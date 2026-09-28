@@ -1,5 +1,4 @@
 import React from 'react';
-import { DEFAULT_CAMERA_CONFIG } from '@/constants/cesiumConfig';
 
 interface MapControlsProps {
   mapLoaded: boolean;
@@ -24,7 +23,7 @@ export const MapControls: React.FC<MapControlsProps> = ({
           className={`w-12 h-12 rounded-full shadow-lg border flex items-center justify-center transition-colors ${
             showCameraPosition 
               ? 'bg-orange-600 text-white border-orange-700' 
-              : 'bg-gray-800 bg-opacity-90 text-white border-gray-700'
+              : 'bg-gray-800/90 text-white border-gray-700'
           }`}
           onClick={onToggleCameraPosition}
           aria-label={showCameraPosition ? 'Ocultar posición' : 'Mostrar posición'}
@@ -35,7 +34,7 @@ export const MapControls: React.FC<MapControlsProps> = ({
         </button>
         
         <button 
-          className="w-12 h-12 rounded-full shadow-lg bg-gray-800 bg-opacity-90 text-white border border-gray-700 flex items-center justify-center"
+          className="w-12 h-12 rounded-full shadow-lg bg-gray-800/90 text-white border border-gray-700 flex items-center justify-center"
           onClick={onResetView}
           aria-label="Restablecer vista"
         >
@@ -51,7 +50,7 @@ export const MapControls: React.FC<MapControlsProps> = ({
           className={`px-3 py-2 rounded-lg shadow-lg text-sm border flex items-center gap-2 transition-colors ${
             showCameraPosition 
               ? 'bg-orange-600 text-white border-orange-700' 
-              : 'bg-gray-900 bg-opacity-90 text-white border-gray-700 hover:bg-gray-800'
+              : 'bg-gray-900/90 text-white border-gray-700 hover:bg-gray-800'
           }`}
           onClick={onToggleCameraPosition}
         >
@@ -64,7 +63,7 @@ export const MapControls: React.FC<MapControlsProps> = ({
 
       <div className="absolute bottom-4 right-4 z-10 hidden md:block">
         <button 
-          className="px-3 py-2 rounded-lg shadow-lg text-sm border bg-gray-900 bg-opacity-90 text-white border-gray-700 hover:bg-gray-800 flex items-center gap-2 transition-colors"
+          className="px-3 py-2 rounded-lg shadow-lg text-sm border bg-gray-900/90 text-white border-gray-700 hover:bg-gray-800 flex items-center gap-2 transition-colors"
           onClick={onResetView}
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">

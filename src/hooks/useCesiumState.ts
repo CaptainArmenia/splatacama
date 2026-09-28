@@ -3,51 +3,31 @@ import { getBlobUrl } from '@/utils/blobUtils';
 import type { MapLandmark, PreviewUrlsState } from '@/types/cesium';
 
 /**
- * Custom hook to manage preview URLs for landmarks
+ * Custom hook to manage preview URLs for landmarks (resolved to proxied R2 URLs by getBlobUrl)
  */
 export const usePreviewUrls = (landmarks: MapLandmark[]) => {
-  const [previewUrls, setPreviewUrls] = useState<PreviewUrlsState>({
-    urls: {},
-    loading: {},
-    errors: {}
-  });
+  const [previewUrls, setPreviewUrls] = useState<PreviewUrlsState>({ urls: {}, pinUrls: {} });
 
   useEffect(() => {
-    async function fetchPreviewUrls() {
+    let cancelled = false;
+
+    async function resolvePreviewUrls() {
       const urlMap: { [id: string]: string } = {};
-      const loadingMap: { [id: string]: boolean } = {};
-      const errorMap: { [id: string]: boolean } = {};
-      
+      const pinUrlMap: { [id: string]: string } = {};
       for (const landmark of landmarks) {
         if (landmark.previewUrl) {
-          try {
-            loadingMap[landmark.id] = true;
-            const url = await getBlobUrl(landmark.previewUrl);
-            
-            urlMap[landmark.id] = url;
-            errorMap[landmark.id] = false;
-          } catch (error) {
-            console.error(`Error constructing preview URL for ${landmark.id}:`, error);
-            errorMap[landmark.id] = true;
-            
-            // Fall back to original URL if blob URL construction fails
-            if (landmark.previewUrl) {
-              urlMap[landmark.id] = landmark.previewUrl;
-            }
-          } finally {
-            loadingMap[landmark.id] = false;
-          }
+          urlMap[landmark.id] = await getBlobUrl(landmark.previewUrl);
+        }
+        const pinImage = landmark.thumbnailUrl || landmark.previewUrl;
+        if (pinImage) {
+          pinUrlMap[landmark.id] = await getBlobUrl(pinImage);
         }
       }
-      
-      setPreviewUrls({
-        urls: urlMap,
-        loading: loadingMap,
-        errors: errorMap
-      });
+      if (!cancelled) setPreviewUrls({ urls: urlMap, pinUrls: pinUrlMap });
     }
     
-    fetchPreviewUrls();
+    resolvePreviewUrls();
+    return () => { cancelled = true; };
   }, [landmarks]);
 
   return previewUrls;
@@ -102,12 +82,5 @@ export const useCameraPosition = (viewer: any, cesium: any, showCameraPosition: 
  * Custom hook to manage canvas cache
  */
 export const useCanvasCache = () => {
-  const canvasCache = useRef<{ [key: string]: HTMLCanvasElement }>({});
-
-  // Clear canvas cache when component mounts/remounts
-  useEffect(() => {
-    canvasCache.current = {};
-  }, []);
-
-  return canvasCache;
+  return useRef<{ [key: string]: HTMLCanvasElement }>({});
 };

@@ -10,7 +10,22 @@ const compat = new FlatCompat({
 });
 
 const eslintConfig = [
+  // Build output and Cesium's copied assets (see next.config.js)
+  { ignores: [".next/**", "public/cesium/**", "next-env.d.ts"] },
   ...compat.extends("next/core-web-vitals", "next/typescript"),
+  {
+    rules: {
+      // Cesium and splat-viewer objects are typed `any` throughout, on purpose (see CLAUDE.md)
+      "@typescript-eslint/no-explicit-any": "off",
+      // Preview images are proxied R2 files; next/image's optimizer isn't set up for them
+      "@next/next/no-img-element": "off",
+    },
+  },
+  {
+    // CommonJS config file
+    files: ["next.config.js"],
+    rules: { "@typescript-eslint/no-require-imports": "off" },
+  },
 ];
 
 export default eslintConfig;
