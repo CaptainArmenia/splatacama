@@ -15,6 +15,15 @@ type Props = {
 const INITIAL_CAMERA_POSITION = [7, -2.5, 5];
 const INITIAL_CAMERA_LOOK_AT = [0, 0, 0];
 
+// The library's LoaderStatus.Downloading. The enum isn't exported; the other statuses mean processing.
+const LOADER_STATUS_DOWNLOADING = 0;
+
+type LoadProgress = { stage: 'downloading' | 'processing'; percent: number };
+
+// Lowest the orbiting camera may go: 81 degrees from straight overhead, about 9 degrees above the ground
+// (roughly 2 m up at the default distance, clear of the bushes)
+const MAX_POLAR_ANGLE = Math.PI * 0.45;
+
 export default function GSplatViewer({
   url,
   backgroundColor = '#f5f5f5',
@@ -23,6 +32,8 @@ export default function GSplatViewer({
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<any>(null);
   const [error, setError] = useState<string | null>(null);
+  // Our own loading indicator; the library's is turned off (its box is too small for its text, and in English)
+  const [loadProgress, setLoadProgress] = useState<LoadProgress | null>({ stage: 'downloading', percent: 0 });
 
   // Keep the latest onError without making it restart the viewer
   const onErrorRef = useRef(onError);
@@ -65,9 +76,6 @@ export default function GSplatViewer({
       initialCameraLookAt: INITIAL_CAMERA_LOOK_AT,
       rootElement: viewerContainer,
       backgroundColor: new THREE.Color(backgroundColor),
-      // Use the library's built-in loading indicator
-      showLoadingSpinner: true,
-      showLoadingProgressBar: true,
       gpuAcceleratedSort: false,
       sharedMemoryForWorkers: false,
       // Enable touch controls for mobile
@@ -76,11 +84,27 @@ export default function GSplatViewer({
     });
     viewerRef.current = viewer;
 
+    // The library lets the camera orbit to 45 degrees below the horizon, i.e. under the ground. Stop it just
+    // above the ground instead; low, eye-level views toward the horizon stay possible.
+    if (viewer.controls) {
+      viewer.controls.maxPolarAngle = MAX_POLAR_ANGLE;
+    }
+
     const load = async () => {
       try {
         setError(null);
+        setLoadProgress({ stage: 'downloading', percent: 0 });
         const splatFileUrl = await getBlobUrl(url);
         if (cancelled) return;
+
+        const onProgress = (percent: number, _label: string, status: number) => {
+          if (cancelled) return;
+          const next: LoadProgress = status === LOADER_STATUS_DOWNLOADING
+            ? { stage: 'downloading', percent: Math.floor(percent) }
+            : { stage: 'processing', percent: 100 };
+          // The library reports progress very often; only re-render when what we show changes
+          setLoadProgress(prev => (prev && prev.stage === next.stage && prev.percent === next.percent ? prev : next));
+        };
 
         await viewer.addSplatScenes([
           {
@@ -91,15 +115,17 @@ export default function GSplatViewer({
             rotation: [0, 0, 0, 1], // Quaternion format [x,y,z,w]
             scale: [10, 10, 10]
           }
-        ]);
+        ], false, onProgress); // false: don't show the library's loading UI
         if (cancelled) return;
 
+        setLoadProgress(null);
         viewer.start();
       } catch (err) {
         // Unmounting aborts the download, which lands here too
         if (cancelled) return;
         console.error("Error initializing splat viewer:", err);
         const errorMsg = err instanceof Error ? err.message : 'Error desconocido';
+        setLoadProgress(null);
         setError(errorMsg);
         onErrorRef.current?.(errorMsg);
       }
@@ -133,6 +159,28 @@ export default function GSplatViewer({
         WebkitTouchCallout: 'none'
       }}
     >
+      {loadProgress && !error && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none" role="status" aria-live="polite">
+          <div className="w-64 max-w-[80vw] rounded-lg border border-gray-700 bg-gray-900/85 px-4 py-3 text-white shadow-lg backdrop-blur-sm">
+            <div className="flex items-center gap-3">
+              <div className="h-4 w-4 flex-shrink-0 animate-spin rounded-full border-2 border-solid border-orange-500 border-r-transparent" />
+              <p className="text-sm font-medium">
+                {loadProgress.stage === 'downloading' ? 'Descargando escena 3D' : 'Preparando escena 3D'}
+              </p>
+              {loadProgress.stage === 'downloading' && (
+                <span className="ml-auto font-mono text-xs text-gray-300">{loadProgress.percent}%</span>
+              )}
+            </div>
+            <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-gray-700">
+              <div
+                className={`h-full rounded-full bg-orange-500 transition-[width] duration-200 ${loadProgress.stage === 'processing' ? 'animate-pulse' : ''}`}
+                style={{ width: `${loadProgress.percent}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-800/75 backdrop-blur-sm transition-all duration-300 z-50">
           <div className="bg-white p-4 sm:p-6 rounded-lg shadow-xl w-[85%] sm:w-auto sm:max-w-md mx-auto">
