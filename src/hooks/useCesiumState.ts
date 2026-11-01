@@ -1,37 +1,26 @@
-import { useState, useEffect } from 'react';
-import { getBlobUrl } from '@/utils/blobUtils';
+import { useState, useEffect, useMemo } from 'react';
+import { assetUrl } from '@/utils/assetUrl';
 import type { MapLandmark, PreviewUrlsState } from '@/types/cesium';
 
 /**
- * Custom hook to manage preview URLs for landmarks (resolved to proxied R2 URLs by getBlobUrl)
+ * The R2 URLs of each landmark's preview photo (for the info panel) and pin image (its thumbnail, or the preview
+ * when it has none)
  */
-export const usePreviewUrls = (landmarks: MapLandmark[]) => {
-  const [previewUrls, setPreviewUrls] = useState<PreviewUrlsState>({ urls: {}, pinUrls: {} });
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function resolvePreviewUrls() {
-      const urlMap: { [id: string]: string } = {};
-      const pinUrlMap: { [id: string]: string } = {};
-      for (const landmark of landmarks) {
-        if (landmark.previewUrl) {
-          urlMap[landmark.id] = await getBlobUrl(landmark.previewUrl);
-        }
-        const pinImage = landmark.thumbnailUrl || landmark.previewUrl;
-        if (pinImage) {
-          pinUrlMap[landmark.id] = await getBlobUrl(pinImage);
-        }
+export const usePreviewUrls = (landmarks: MapLandmark[]): PreviewUrlsState =>
+  useMemo(() => {
+    const urls: { [id: string]: string } = {};
+    const pinUrls: { [id: string]: string } = {};
+    for (const landmark of landmarks) {
+      if (landmark.previewUrl) {
+        urls[landmark.id] = assetUrl(landmark.previewUrl);
       }
-      if (!cancelled) setPreviewUrls({ urls: urlMap, pinUrls: pinUrlMap });
+      const pinImage = landmark.thumbnailUrl || landmark.previewUrl;
+      if (pinImage) {
+        pinUrls[landmark.id] = assetUrl(pinImage);
+      }
     }
-    
-    resolvePreviewUrls();
-    return () => { cancelled = true; };
+    return { urls, pinUrls };
   }, [landmarks]);
-
-  return previewUrls;
-};
 
 /**
  * Custom hook to manage camera position tracking

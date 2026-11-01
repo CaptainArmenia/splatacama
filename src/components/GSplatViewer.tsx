@@ -1,5 +1,5 @@
 'use client';
-import { getBlobUrl } from '@/utils/blobUtils';
+import { assetUrl } from '@/utils/assetUrl';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
@@ -94,8 +94,7 @@ export default function GSplatViewer({
       try {
         setError(null);
         setLoadProgress({ stage: 'downloading', percent: 0 });
-        const splatFileUrl = await getBlobUrl(url);
-        if (cancelled) return;
+        const splatFileUrl = assetUrl(url);
 
         const onProgress = (percent: number, _label: string, status: number) => {
           if (cancelled) return;
@@ -109,7 +108,7 @@ export default function GSplatViewer({
         await viewer.addSplatScenes([
           {
             path: splatFileUrl,
-            // The proxied URL only happens to end in .splat, so don't let the library guess the format from it
+            // Don't let the library guess the format from the URL; a query string or other ending would break it
             format: GaussianSplats3D.SceneFormat.Splat,
             position: [0, 0, 0],
             rotation: [0, 0, 0, 1], // Quaternion format [x,y,z,w]
