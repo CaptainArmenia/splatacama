@@ -6,8 +6,8 @@ export const DEFAULT_CAMERA_CONFIG = {
     height: 10800, // Height in meters
   },
   orientation: {
-    heading: 34,    // North (in degrees, will be converted to radians)
-    pitch: -30,    // 10-degree inclination (in degrees, will be converted to radians)
+    heading: 34,   // Degrees clockwise from north: looking northeast
+    pitch: -30,    // Degrees below the horizon
     roll: 0
   },
   animation: {
@@ -17,9 +17,9 @@ export const DEFAULT_CAMERA_CONFIG = {
 
 // Marker configuration
 export const MARKER_CONFIG = {
-  defaultSize: 50,  // Increased from 40 to maintain quality at 3X scale
-  selectedScale: 1.2,
-  hoveredScale: 1.2,  // Increased from 1.1 to 3.0 for dramatic hover effect
+  defaultSize: 50,  // Pin diameter on screen, in pixels
+  selectedScale: 1.2,   // Pins grow 20% when selected or hovered
+  hoveredScale: 1.2,
   defaultScale: 1.0,
   clusterDistance: 44,   // Pins whose centers are closer than this (in pixels, about one pin width) merge into a cluster
   explodeRadius: 45,     // How far (in pixels) a clicked cluster fans its pins out from their shared location

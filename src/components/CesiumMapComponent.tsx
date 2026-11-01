@@ -5,9 +5,10 @@ import { LandmarkInfoPanel } from './LandmarkInfoPanel';
 import { CameraPositionPanel } from './CameraPositionPanel';
 import { MapControls } from './MapControls';
 import { useCesiumViewer } from '@/hooks/useCesiumViewer';
-import { usePreviewUrls, useCameraPosition, useCanvasCache } from '@/hooks/useCesiumState';
+import { usePreviewUrls, useCameraPosition } from '@/hooks/useCesiumState';
 import { updateLandmarkVisualState, updateSpecificLandmarkMarker, resetCameraView } from '@/utils/cesiumMarkerManager';
 import { getCacheKey } from '@/utils/cesiumMarkers';
+import { LoadingMessage } from './LoadingMessage';
 import type { CesiumMapProps, MapLandmark } from '@/types/cesium';
 
 export default function CesiumMapComponent({
@@ -35,7 +36,8 @@ export default function CesiumMapComponent({
 
   const previewUrls = usePreviewUrls(landmarks);
   const cameraPosition = useCameraPosition(viewer, cesium, showCameraPosition);
-  const canvasCache = useCanvasCache();
+  // Pin canvases built so far, by getCacheKey()
+  const canvasCache = useRef<{ [key: string]: HTMLCanvasElement }>({});
 
   // Track previous states to detect changes
   const prevSelectedLandmarkRef = useRef<MapLandmark | null>(null);
@@ -109,22 +111,16 @@ export default function CesiumMapComponent({
     window.location.href = `/scene/${landmarkId}`;
   };
 
-  // Same spinner as the one MapWithPins shows while this component loads
-  if (!cesium && typeof window !== 'undefined') {
+  // Same message as MapWithPins shows while this component's code loads. (This component only renders in the
+  // browser: MapWithPins imports it with ssr: false.)
+  if (!cesium) {
     return (
       <div className="h-full w-full flex items-center justify-center bg-white">
-        <div className="text-center">
-          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-orange-500 border-r-transparent align-[-0.125em]" />
-          <p className="mt-2">Cargando mapa 3D...</p>
-        </div>
+        <LoadingMessage message="Cargando mapa 3D..." />
       </div>
     );
   }
-  
-  if (typeof window === 'undefined') {
-    return null; // Return nothing during SSR
-  }
-  
+
   return (
     <>
       <div 
@@ -135,10 +131,7 @@ export default function CesiumMapComponent({
       {/* Loading indicator */}
       {!mapLoaded && (
         <div className="absolute inset-0 flex items-center justify-center bg-white/70">
-          <div className="text-center">
-            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-orange-500 border-r-transparent align-[-0.125em]" />
-            <p className="mt-2">Cargando terreno 3D...</p>
-          </div>
+          <LoadingMessage message="Cargando terreno 3D..." />
         </div>
       )}
       

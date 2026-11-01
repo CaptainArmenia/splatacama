@@ -9,16 +9,16 @@ import type { MapLandmark } from '@/types/cesium';
  * Custom hook to manage Cesium viewer initialization and configuration
  */
 export const useCesiumViewer = (
-  containerRef: React.RefObject<HTMLDivElement>,
+  containerRef: React.RefObject<HTMLDivElement | null>,
   landmarks: MapLandmark[],
   setErrorState: (error: string | null) => void,
   setSelectedLandmark: (landmark: MapLandmark | null) => void,
   setHoveredLandmark: (landmark: MapLandmark | null) => void,
   preventPinOcclusion: boolean
 ) => {
-  const [mapLoaded, setMapLoaded] = useState(false);
   const [cesium, setCesium] = useState<any>(null);
-  const viewerRef = useRef<any>(null);
+  // State rather than a ref, so components re-render with the viewer once it exists
+  const [viewer, setViewer] = useState<any>(null);
   const entityRefs = useRef<{ [id: string]: any }>({});
 
   // Load Cesium
@@ -49,33 +49,32 @@ export const useCesiumViewer = (
       return;
     }
 
-    let destroyViewer: (() => void) | undefined;
+    let built: ReturnType<typeof createViewer> | undefined;
     try {
-      destroyViewer = createViewer(cesium, container, landmarks, entityRefs, setSelectedLandmark, setHoveredLandmark, preventPinOcclusion, viewerRef);
-      setMapLoaded(true);
+      built = createViewer(cesium, container, landmarks, entityRefs, setSelectedLandmark, setHoveredLandmark, preventPinOcclusion);
+      setViewer(built.viewer);
     } catch (error) {
       console.error("Error initializing Cesium viewer:", error);
       setErrorState("No se pudo iniciar el mapa 3D");
     }
 
     return () => {
-      destroyViewer?.();
-      viewerRef.current = null;
+      built?.destroy();
       entityRefs.current = {};
-      setMapLoaded(false);
+      setViewer(null);
     };
   }, [cesium, containerRef, landmarks, setErrorState, setSelectedLandmark, setHoveredLandmark, preventPinOcclusion]);
 
   return {
-    mapLoaded,
+    mapLoaded: viewer !== null,
     cesium,
-    viewer: viewerRef.current,
+    viewer,
     entityRefs
   };
 };
 
 /**
- * Builds the viewer with its pins, clusters and input handlers. Returns a function that tears it all down.
+ * Builds the viewer with its pins, clusters and input handlers. Returns it with a function that tears it all down.
  */
 function createViewer(
   cesium: any,
@@ -84,9 +83,8 @@ function createViewer(
   entityRefs: React.MutableRefObject<{ [id: string]: any }>,
   setSelectedLandmark: (landmark: MapLandmark | null) => void,
   setHoveredLandmark: (landmark: MapLandmark | null) => void,
-  preventPinOcclusion: boolean,
-  viewerRef: React.MutableRefObject<any>
-): () => void {
+  preventPinOcclusion: boolean
+): { viewer: any; destroy: () => void } {
   cesium.Ion.defaultAccessToken = process.env.NEXT_PUBLIC_CESIUM_TOKEN;
 
   // Start on ArcGIS World Imagery and Cesium World Terrain. Choosing them here, rather than switching the
@@ -102,13 +100,12 @@ function createViewer(
     selectedTerrainProviderViewModel: terrainProviderViewModels.find((model: any) => model.name === 'Cesium World Terrain'),
     creditContainer: document.createElement('div'), // Hide credits
   });
-  viewerRef.current = viewer;
 
   // Configure viewer settings
   setupViewerSettings(viewer, preventPinOcclusion);
 
   // Restyle the base layer picker
-  const pickerTimeout = customizeBaseLayerPickerUI();
+  const pickerTimeout = customizeBaseLayerPickerUI(container);
 
   // Add landmarks as billboards
   addLandmarkBillboards(viewer, cesium, landmarks, preventPinOcclusion, entityRefs);
@@ -122,13 +119,14 @@ function createViewer(
   // Set initial camera position
   setInitialCameraPosition(viewer, cesium);
 
-  return () => {
+  const destroy = () => {
     clearTimeout(pickerTimeout);
     handlers.forEach(handler => handler.destroy());
     pinClusters.destroy();
     document.body.style.cursor = 'default';
     viewer.destroy();
   };
+  return { viewer, destroy };
 }
 
 // Helper functions
@@ -149,11 +147,11 @@ function setupViewerSettings(viewer: any, preventPinOcclusion: boolean) {
   viewer.scene.screenSpaceCameraController.maximumZoomDistance = SCENE_CONFIG.maximumZoomDistance;
 }
 
-function customizeBaseLayerPickerUI() {
+function customizeBaseLayerPickerUI(viewerContainer: HTMLElement) {
   return setTimeout(() => {
     try {
-      const baseLayerPickerContainer = document.querySelector('.cesium-viewer .cesium-baseLayerPicker-dropDown') as HTMLElement;
-      const layerButton = document.querySelector('.cesium-viewer .cesium-toolbar-button') as HTMLElement;
+      const baseLayerPickerContainer = viewerContainer.querySelector<HTMLElement>('.cesium-baseLayerPicker-dropDown');
+      const layerButton = viewerContainer.querySelector<HTMLElement>('.cesium-toolbar-button');
 
       if (baseLayerPickerContainer && baseLayerPickerContainer.parentElement) {
         const container = baseLayerPickerContainer.parentElement as HTMLElement;

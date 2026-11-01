@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { getBlobUrl } from '@/utils/blobUtils';
 import type { MapLandmark, PreviewUrlsState } from '@/types/cesium';
 
@@ -76,11 +76,4 @@ export const useCameraPosition = (viewer: any, cesium: any, showCameraPosition: 
   }, [showCameraPosition, viewer, cesium]);
 
   return cameraPosition;
-};
-
-/**
- * Custom hook to manage canvas cache
- */
-export const useCanvasCache = () => {
-  return useRef<{ [key: string]: HTMLCanvasElement }>({});
 };
