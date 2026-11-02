@@ -21,7 +21,7 @@ export default async function ScenePage({ params }: { params: Promise<{ id: stri
 
   return (
     <main className="h-[100dvh] w-screen relative overflow-hidden">
-      <GSplatViewer url={landmark.gsplatUrl} />
+      <GSplatViewer url={landmark.gsplatUrl} viewLimits={landmark.view} />
 
       {/* Back to map button - moved to top-left corner */}
       <div className="absolute top-4 left-4 z-50">
