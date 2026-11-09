@@ -101,15 +101,18 @@ The `.splat` files, terrain and skies come from the splat pipeline, which lives 
 
 Sites close enough that their pins overlap are fine. Overlapping pins merge into one marker showing how many sites are there. Clicking it fans the pins out around the location, and clicking empty map folds them back.
 
-The map currently has four sites. `pirca0` is the original capture, at its original coordinates; it has no terrain, and real wind turbines (Cabo Leones II) stand in its backdrop ([src/data/windTurbines.json](src/data/windTurbines.json)). `pirca11`–`pirca13` are the three drone captures added in September 2026, each a splat cropped to the site with terrain out to 25 km.
+The map currently has four sites, each a splat cropped to the site with terrain out to 25 km. `pirca0` is the original capture, a phone capture of which only the trained splat and one photo are left; its terrain was made from the splat and the elevation data alone (the pipeline's `splat_ground_cache.py`), and real wind turbines (Cabo Leones II) stand on it ([src/data/windTurbines.json](src/data/windTurbines.json)). `pirca11`–`pirca13` are the three drone captures added in September 2026.
 
 To try scene files before uploading them, put them in `public/local-splats/` (gitignored) and point a site's URLs at `http://localhost:<port>/local-splats/<file>` without committing that. Files in the bucket only load on `http://localhost:3000` (see the CORS note below).
 
 ### Wind turbines
 
-[src/data/windTurbines.json](src/data/windTurbines.json) lists the real turbines in view of a site (positions from OpenStreetMap), and [src/utils/windTurbines.ts](src/utils/windTurbines.ts) draws them in the scene's backdrop with turning rotors. Each turbine is drawn at its true compass bearing but much nearer than it really is, scaled to look as big as the real one.
+[src/data/windTurbines.json](src/data/windTurbines.json) lists the real turbines in view of a site (positions from OpenStreetMap), and [src/utils/windTurbines.ts](src/utils/windTurbines.ts) draws them with turning rotors, each at its true compass bearing and scaled to look as big as the real one. Each entry ends with a distance and a base elevation, which place it:
 
-Each entry ends with a distance and a base elevation: where the splat's ground meets the sky below that turbine. Placed anywhere else, a turbine drifts off the horizon as the camera moves, and floats above it when the camera rises. A splat's far ground is a soft smear, so these numbers can't be read from the splat file. They're fitted to renders instead: the scene is rendered with the turbines hidden from about 30 camera positions inside the orbit limits, the horizon under each turbine is found in every image, and each turbine gets the point that best matches all of them. `sky` holds the sky colours behind the turbines, measured from the same renders; blades thinner than a pixel are faded toward them. The scripts are in `~/datasets/pircas-work/tools/turbines/` on the machine that built the splats; their README says how to run them. Re-run them if a site's `.splat` is replaced.
+- **On a site with terrain** (pirca0), the turbines stand on the terrain at their real distances, and its hills hide their bases as the real ridge does in pirca0's photo. The pipeline writes the two numbers from the same terrain: `env_build.py <id> <out> --turbines <this repo>/src/data/windTurbines.json`. Re-run it whenever the terrain is rebuilt.
+- **On a full splat without terrain**, they're a backdrop drawn much nearer than they are, standing where the splat's ground meets the sky below each of them; anywhere else they'd float above the horizon when the camera rises. A splat's far ground is a soft smear, so those numbers are fitted to renders from about 30 camera positions, with the scripts in `~/datasets/pircas-work/tools/turbines/`.
+
+`sky` holds the sky colours behind the turbines, measured from renders; blades thinner than a pixel are faded toward them.
 
 `windFrom` sets which way the rotors face. For pirca0 it's 200°, which shows the rotors almost side-on from the site, as in its photo.
 
@@ -145,7 +148,7 @@ src/
     cesiumMarkerManager.ts    updates pin image and scale; resets the camera
     cesiumPinClusters.ts      merges overlapping pins into clusters and fans them out on click
     sceneEnvironment.ts       terrain and sky around a cropped splat, with the terrain's detail texture
-    windTurbines.ts           real wind turbines in a scene's backdrop, with turning rotors
+    windTurbines.ts           real wind turbines on a scene's terrain or backdrop, with turning rotors
     windAmbience.ts           plays the wind sound (Web Audio)
     walkArea.ts               where a visitor can walk in VR: ground height, walls and bushes, edge of the detailed area
     vrWalk.ts                 the VR session: walking and turning with the controllers, kept inside the walk area

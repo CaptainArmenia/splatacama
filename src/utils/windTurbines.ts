@@ -56,13 +56,17 @@ const BLADE_SIDES = 10;
 const SUN = { bearing: 346, elevation: 53, color: '#fffaf2', intensity: 4 };
 const SKY_LIGHT = { sky: '#c8def8', ground: '#8a857d', intensity: 2.2, night: 0.035 };
 
-// Far turbines fade into the sky colour of pirca0's photo: by about 8% at 1 km and 37% at 5.6 km
+// Far turbines fade into the sky colour of pirca0's photo: by about 8% at 1 km and 37% at 5.6 km. On a terrain they
+// fade like it instead: into the scene's background colour, over env_build.py's 8 km.
 const HAZE = { color: '#cbd9e8', metres: 12000 };
+const TERRAIN_HAZE_METRES = 8000;
 const NIGHT_HAZE = '#06080d';
 
-// The splat's sky near the horizon sits closer than the edge of its ground, where the turbines are drawn, so it
-// would paint over them. Turbines are depth-tested as if this far from the camera (viewer units) instead: walls and
-// bushes nearer than that still cover them, the sky behind doesn't.
+// Without a terrain, the turbines are a backdrop on a full splat's horizon. Its sky near the horizon sits closer than
+// the edge of its ground, where the turbines are drawn, so it would paint over them. Backdrop turbines are
+// depth-tested as if this far from the camera (viewer units) instead: walls and bushes nearer than that still cover
+// them, the sky behind doesn't. (A scene with a terrain has its splat cropped, sky and all; there the turbines stand
+// on the terrain at their real distances and keep their real depth, so its hills hide them.)
 const DEPTH_DISTANCE = 40;
 
 // Red obstruction lights on the nacelles, at night: wind farms flash them together, about 30 times a minute
@@ -212,9 +216,9 @@ function buildGeometries() {
 
 // What the turbines' material adds to three.js's: thin parts widened to MIN_PIXELS on screen (see CROSS_SECTION) and
 // blended into the sky behind them (`skyColors`, at 0, 4 and 8 degrees above their bases) as much as they fall short;
-// per-instance haze (`instanceHaze`, 0 to 1) toward `hazeColor`; and a depth as if DEPTH_DISTANCE from the camera
-// along the same line of sight. `instanceBase` is where each turbine stands.
-function turbineShader(uniforms: Record<string, { value: unknown }>) {
+// per-instance haze (`instanceHaze`, 0 to 1) toward `hazeColor`; and for a backdrop, a depth as if DEPTH_DISTANCE from
+// the camera along the same line of sight. `instanceBase` is where each turbine stands.
+function turbineShader(uniforms: Record<string, { value: unknown }>, backdrop: boolean) {
   return (shader: { uniforms: Record<string, unknown>; vertexShader: string; fragmentShader: string }) => {
     Object.assign(shader.uniforms, uniforms);
     shader.uniforms.depthDistance = { value: DEPTH_DISTANCE };
@@ -268,11 +272,13 @@ uniform float depthDistance;`)
       .replace('#include <opaque_fragment>', `outgoingLight = mix(outgoingLight, hazeColor, vHaze);
 vec3 sky = mix(mix(skyColors[0], skyColors[1], clamp(vElevation / 4.0, 0.0, 1.0)), skyColors[2], clamp(vElevation / 4.0 - 1.0, 0.0, 1.0));
 outgoingLight = mix(sky, outgoingLight, vCoverage);
-#include <opaque_fragment>`)
-      .replace(/}\s*$/, `
+#include <opaque_fragment>`);
+    if (backdrop) {
+      shader.fragmentShader = shader.fragmentShader.replace(/}\s*$/, `
   vec4 pulled = projectionMatrix * vec4(-normalize(vViewPosition) * depthDistance, 1.0);
   gl_FragDepth = 0.5 + 0.5 * pulled.z / pulled.w;
 }`);
+    }
   };
 }
 
@@ -287,12 +293,19 @@ export type WindTurbines = {
 };
 
 /**
- * Draws a site's real wind turbines (positions from OpenStreetMap) into the splat scene's backdrop, with turning
- * rotors, as two instanced meshes. Each turbine sits at its true compass direction from the site, on the splat's
- * horizon, scaled so it looks as big as the real one does from the site. `heading` is the site's (landmarks.json):
- * north is (sin h, 0, cos h) in the viewer's frame. Added to `parent`, which holds the scene in the viewer's frame.
+ * Draws a site's real wind turbines (positions from OpenStreetMap) with turning rotors, as two instanced meshes. Each
+ * turbine sits at its true compass direction from the site, at the distance and base elevation in its entry, scaled so
+ * it looks as big as the real one does from the site. With `terrain` (the scene's terrain mesh, whose haze colour is
+ * the scene's background), that's on the terrain at its real distance; without, a backdrop on the splat's horizon (see
+ * DEPTH_DISTANCE). `heading` is the site's (landmarks.json): north is (sin h, 0, cos h) in the viewer's frame. Added
+ * to `parent`, which holds the scene in the viewer's frame.
  */
-export function addWindTurbines(parent: THREE.Object3D, config: SceneTurbines, heading: number): WindTurbines {
+export function addWindTurbines(
+  parent: THREE.Object3D,
+  config: SceneTurbines,
+  heading: number,
+  terrain: { haze: THREE.Color } | null,
+): WindTurbines {
   const group = new THREE.Group();
   group.name = 'wind-turbines';
 
@@ -323,14 +336,14 @@ export function addWindTurbines(parent: THREE.Object3D, config: SceneTurbines, h
   const haze = new Float32Array(placed.length);
   const bases = new Float32Array(placed.length * 3);
   placed.forEach(({ metres, base }, index) => {
-    haze[index] = 1 - Math.exp(-metres / HAZE.metres);
+    haze[index] = 1 - Math.exp(-metres / (terrain ? TERRAIN_HAZE_METRES : HAZE.metres));
     base.toArray(bases, index * 3);
   });
   for (const geometry of Object.values(geometries)) {
     geometry.setAttribute('instanceHaze', new THREE.InstancedBufferAttribute(haze, 1));
     geometry.setAttribute('instanceBase', new THREE.InstancedBufferAttribute(bases, 3));
   }
-  const dayHaze = new THREE.Color(HAZE.color);
+  const dayHaze = terrain ? terrain.haze.clone() : new THREE.Color(HAZE.color);
   const daySky = config.sky.map(color => new THREE.Color(color));
   const uniforms = {
     hazeColor: { value: dayHaze.clone() },
@@ -338,8 +351,8 @@ export function addWindTurbines(parent: THREE.Object3D, config: SceneTurbines, h
     viewportHeight: { value: 1 },
   };
   const material = new THREE.MeshLambertMaterial({ vertexColors: true });
-  material.onBeforeCompile = turbineShader(uniforms);
-  material.customProgramCacheKey = () => 'wind-turbine';
+  material.onBeforeCompile = turbineShader(uniforms, !terrain);
+  material.customProgramCacheKey = () => (terrain ? 'wind-turbine' : 'wind-turbine-backdrop');
 
   const bodies = new THREE.InstancedMesh(geometries.body, material, placed.length);
   const rotors = new THREE.InstancedMesh(geometries.rotor, material, placed.length);

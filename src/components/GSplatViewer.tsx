@@ -335,7 +335,9 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
         if (environment) world.add(environment.group);
         analysis = siteAnalysis;
 
-        if (turbineConfig) windTurbines = addWindTurbines(world, turbineConfig, heading);
+        if (turbineConfig) {
+          windTurbines = addWindTurbines(world, turbineConfig, heading, environment ? { haze: background } : null);
+        }
 
         effects = await createSceneEffects({
           world, scene, renderer, splat: mesh, file, analysis: siteAnalysis, environment, turbines: windTurbines,

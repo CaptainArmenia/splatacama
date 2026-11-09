@@ -87,9 +87,9 @@ describe('windTurbines.json', () => {
       expect(Math.abs(lng - site.lng)).toBeLessThan(0.3);
       expect(hub).toBeGreaterThan(40);
       expect(rotor).toBeGreaterThan(40);
-      // On the horizon: past the site, inside the far plane, a few degrees from level at most
+      // Past the site and inside the camera's far plane (1000 units without terrain), a few degrees from level at most
       expect(distance).toBeGreaterThan(20);
-      expect(distance).toBeLessThan(500);
+      expect(distance).toBeLessThan(site.environment?.far ?? 1000);
       expect(Math.abs(baseElevation)).toBeLessThan(10);
     }
   });

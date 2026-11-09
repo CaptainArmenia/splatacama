@@ -8,12 +8,18 @@
     "heading": 127.0,
     "metersPerUnit": 1.5,
     "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
-    "gsplatUrl": "pirca.splat",
+    "gsplatUrl": "pirca0_center.splat",
     "previewUrl": "pirca0_preview.jpg",
     "thumbnailUrl": "pirca0_thumb.jpg",
     "view": {
       "maxDistance": 9.5,
       "radius": 7
+    },
+    "environment": {
+      "terrainUrl": "pirca0_terrain.glb",
+      "skyUrl": "pirca0_sky.jpg",
+      "background": "#a9d7f8",
+      "far": 20000
     }
   },
   {
