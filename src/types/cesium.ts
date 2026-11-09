@@ -48,20 +48,22 @@ export interface SceneEnvironment {
 }
 
 // Real wind turbines near a site, drawn by src/utils/windTurbines.ts as a backdrop: each at its true compass direction
-// from `origin` but `distance` viewer units out, about where the splat's ground ends, scaled to look as big as the real
-// one. src/data/windTurbines.json holds them by site id. Positions are from OpenStreetMap (generator:source=wind,
-// fetched 2026-11-02): pirca0 shows the Cabo Leones II row in its photo. Pirca 1 and 2 have none within 25 km, and
-// Pirca 3's, 9-25 km north, are hidden behind the ridge north of it.
+// from `origin`, standing on the splat's horizon and scaled to look as big as the real one. src/data/windTurbines.json
+// holds them by site id. Positions are from OpenStreetMap (generator:source=wind, fetched 2026-11-02): pirca0 shows
+// the Cabo Leones II row in its photo. Pirca 1 and 2 have none within 25 km, and Pirca 3's, 9-25 km north, are hidden
+// behind the ridge north of it.
 export interface SceneTurbines {
   // [lat, lng] where the scene was captured: bearings and distances to the turbines are measured from here
   origin: number[];
-  // How far out the turbines are drawn (viewer units), and the height of their bases there in degrees above level
-  // seen from the site centre: the splat's horizon
-  distance: number;
-  baseElevation: number;
   // Compass bearing the wind blows from; the rotors face it
   windFrom: number;
-  // [lat, lng, hub height in metres, rotor diameter in metres] for each turbine; the sizes are a generic 2-3 MW one
+  // The splat's sky behind the turbines at 0, 4 and 8 degrees above the horizon (CSS colours, measured from renders):
+  // blades thinner than a pixel are drawn a little wider and faded toward it
+  sky: string[];
+  // [lat, lng, hub height in metres, rotor diameter in metres, distance, base elevation] for each turbine. The sizes
+  // are a generic 2-3 MW one. Distance (viewer units, from the site centre) and base elevation (degrees above level,
+  // seen from the site centre at ground height) are where the splat's horizon is below that turbine, so the two stay
+  // together as the camera moves. They're fitted to renders from many camera positions (README, "Wind turbines").
   turbines: number[][];
 }
 

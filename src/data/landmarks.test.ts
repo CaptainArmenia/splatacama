@@ -76,13 +76,21 @@ describe('windTurbines.json', () => {
 
   it.each(Object.entries(bySite))('%s has turbines near the site, with sizes', (id, config) => {
     const site = sites.find(s => s.id === id)!;
+    expect(config.sky).toHaveLength(3);
+    for (const color of config.sky) expect(color).toMatch(/^#[0-9a-f]{6}$/);
     expect(config.turbines.length).toBeGreaterThan(0);
-    for (const [lat, lng, hub, rotor] of config.turbines) {
+    for (const turbine of config.turbines) {
+      const [lat, lng, hub, rotor, distance, baseElevation] = turbine;
+      expect(turbine).toHaveLength(6);
       // Within about 30 km
       expect(Math.abs(lat - site.lat)).toBeLessThan(0.3);
       expect(Math.abs(lng - site.lng)).toBeLessThan(0.3);
       expect(hub).toBeGreaterThan(40);
       expect(rotor).toBeGreaterThan(40);
+      // On the horizon: past the site, inside the far plane, a few degrees from level at most
+      expect(distance).toBeGreaterThan(20);
+      expect(distance).toBeLessThan(500);
+      expect(Math.abs(baseElevation)).toBeLessThan(10);
     }
   });
 });

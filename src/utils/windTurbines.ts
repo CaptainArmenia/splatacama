@@ -9,14 +9,52 @@ const MODEL = {
   rotorRadius: 57,
   // Tower radius at the ground and at the top
   towerRadius: [2.2, 1.4],
+  // Nacelle width, height and length; the rotor's centre is this far above the tower top and in front of its axis
+  nacelle: [4.2, 4.4, 12],
+  hubAbove: 1.8,
+  hubAhead: 4.6,
+  // The rotor's axis tilts up and the blades lean into the wind (degrees), as on real turbines: seen side-on, the
+  // rotor isn't quite upright
+  tilt: 5,
+  cone: 2.5,
+  // Blade pitch (degrees): in strong wind the blades turn out of the rotor's plane to shed power. This much matches
+  // how wide they look side-on in pirca0's photo.
+  pitch: 20,
   // Each turbine turns at its own speed in this range
   rpm: [11, 15],
-  // Red band at the blade tips (aviation marking)
+  // Aviation marking, as in pirca0's photo: red, white and red bands this long from each blade tip inward
   tipBand: 6,
 };
 
-// Early-afternoon autumn sun, as in pirca0's photo (13:21 on 6 April 2025): north-northwest and high
-const SUN = { bearing: 346, elevation: 53 };
+// The blade's shape from root to tip, at these distances from the rotor's centre (metres; the band edges are among
+// them): [distance, chord, thickness as a share of the chord, twist in degrees]. Round where it leaves the hub,
+// widest about a fifth of the way out, then tapering and flattening; the twist turns the inner part more into the
+// wind. Seen from the side, as from pirca0, the blades are thin slivers.
+const BLADE = [
+  [1.6, 2.4, 1, 0],
+  [2.8, 2.4, 1, 0],
+  [4.5, 2.7, 0.8, 6],
+  [7, 3.4, 0.55, 12],
+  [10, 3.9, 0.42, 14],
+  [13, 4, 0.36, 13],
+  [17, 3.7, 0.3, 11],
+  [22, 3.3, 0.25, 9],
+  [28, 2.8, 0.21, 7],
+  [33, 2.4, 0.19, 5],
+  [39, 1.95, 0.17, 3.5],
+  [45, 1.5, 0.16, 2],
+  [48, 1.3, 0.15, 1.5],
+  [51, 1.1, 0.15, 1],
+  [54, 0.85, 0.15, 0.5],
+  [57, 0.5, 0.15, 0],
+];
+const BLADE_SIDES = 10;
+
+// Early-afternoon autumn sun, as in pirca0's photo (13:21 on 6 April 2025): north-northwest and high. The light is
+// matched to the towers there: near white on the sunny side, a cool blue-grey in the shade (little warm bounce from
+// the ground). At night only a trace of sky light is left.
+const SUN = { bearing: 346, elevation: 53, color: '#fffaf2', intensity: 4 };
+const SKY_LIGHT = { sky: '#c8def8', ground: '#8a857d', intensity: 2.2, night: 0.035 };
 
 // Far turbines fade into the sky colour of pirca0's photo: by about 8% at 1 km and 37% at 5.6 km
 const HAZE = { color: '#cbd9e8', metres: 12000 };
@@ -46,64 +84,190 @@ const jitter = (index: number, salt: number) => {
   return x - Math.floor(x);
 };
 
-const paint = (geometry: THREE.BufferGeometry, colorAt: (y: number) => number[]) => {
-  const position = geometry.attributes.position;
-  const colors: number[] = [];
-  for (let i = 0; i < position.count; i++) colors.push(...colorAt(position.getY(i)));
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  return geometry;
-};
 const WHITE = [1, 1, 1];
 const RED = [0.75, 0.06, 0.05];
+
+// Far away, the blades and towers are thinner than a pixel and would break up into dots. Each vertex of those parts
+// carries its cross-section, so the shader can widen them to MIN_PIXELS and blend them into the sky as much as they
+// fall short: `axisPoint`, the point on the part's centre line level with the vertex; `axisAlong`, the line's
+// direction; and `halfChord` and `halfThick`, the cross-section's half axes. The other parts have zeros there.
+const CROSS_SECTION = ['axisPoint', 'axisAlong', 'halfChord', 'halfThick'];
+const MIN_PIXELS = 1.5;
+
+// Unindexed, without texture coordinates, with cross-section attributes and painted white, so the parts merge
+const prepare = (geometry: THREE.BufferGeometry) => {
+  const flat = geometry.index ? geometry.toNonIndexed() : geometry;
+  if (flat !== geometry) geometry.dispose();
+  flat.deleteAttribute('uv');
+  const count = flat.attributes.position.count;
+  for (const name of CROSS_SECTION) {
+    if (!flat.attributes[name]) flat.setAttribute(name, new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+  }
+  const colors = new Float32Array(count * 3);
+  for (let i = 0; i < colors.length; i += 3) colors.set(WHITE, i);
+  flat.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return flat;
+};
+
+// Turns a part and its cross-section attributes
+const rotatePart = (geometry: THREE.BufferGeometry, rotation: THREE.Matrix4) => {
+  geometry.applyMatrix4(rotation);
+  geometry.attributes.axisPoint.applyMatrix4(rotation);
+  const turn = new THREE.Matrix3().setFromMatrix4(rotation);
+  for (const name of ['axisAlong', 'halfChord', 'halfThick']) (geometry.attributes[name] as THREE.BufferAttribute).applyMatrix3(turn);
+  return geometry;
+};
+
+// One blade along -y from the rotor's centre, from the BLADE table: a ring of BLADE_SIDES points at each distance,
+// an airfoil-like oval (round leading edge at -x, the side it moves toward; sharp trailing edge), turned by its twist
+// and the pitch
+function bladeGeometry() {
+  const { rotorRadius, tipBand } = MODEL;
+  const positions: number[] = [];
+  const section: Record<string, number[]> = { axisPoint: [], axisAlong: [], halfChord: [], halfThick: [] };
+  for (const [r, chord, thickness, twist] of BLADE) {
+    // A round root stays centred; further out the blade turns about a line a third of the way back from its leading edge
+    const flatness = (1 - thickness) / (1 - BLADE[BLADE.length - 1][2]);
+    const shift = 0.2 * flatness;
+    const angle = toRadians(twist + MODEL.pitch);
+    // Turning the leading edge (-x) toward the wind (+z)
+    const twisted = (x: number, z: number) => [x * Math.cos(angle) + z * Math.sin(angle), -x * Math.sin(angle) + z * Math.cos(angle)];
+    const [chordX, chordZ] = twisted(chord / 2, 0);
+    const [thickX, thickZ] = twisted(0, (chord * thickness) / 2);
+    for (let j = 0; j < BLADE_SIDES; j++) {
+      const a = (j / BLADE_SIDES) * 2 * Math.PI;
+      const x = chord * (shift + 0.5 * Math.cos(a));
+      const taper = Math.cos(a) > 0 ? 1 - 0.75 * flatness * Math.cos(a) ** 2 : 1;
+      const [px, pz] = twisted(x, ((chord * thickness) / 2) * Math.sin(a) * taper);
+      positions.push(px, -r, pz);
+      section.axisPoint.push(0, -r, 0);
+      section.axisAlong.push(0, -1, 0);
+      section.halfChord.push(chordX, 0, chordZ);
+      section.halfThick.push(thickX, 0, thickZ);
+    }
+  }
+  const index: number[] = [];
+  for (let s = 0; s < BLADE.length - 1; s++) {
+    for (let j = 0; j < BLADE_SIDES; j++) {
+      const a = s * BLADE_SIDES + j;
+      const b = a + BLADE_SIDES;
+      const c = s * BLADE_SIDES + ((j + 1) % BLADE_SIDES);
+      const d = c + BLADE_SIDES;
+      index.push(a, c, b, c, d, b);
+    }
+  }
+  const smooth = new THREE.BufferGeometry();
+  smooth.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  for (const name of CROSS_SECTION) smooth.setAttribute(name, new THREE.Float32BufferAttribute(section[name], 3));
+  smooth.setIndex(index);
+  smooth.computeVertexNormals();
+  const blade = prepare(smooth);
+
+  // Each segment's colour from how far its middle is from the tip: red, white, red, then white to the root
+  const colors = blade.attributes.color;
+  const perSegment = BLADE_SIDES * 6;
+  for (let s = 0; s < BLADE.length - 1; s++) {
+    const fromTip = rotorRadius - (BLADE[s][0] + BLADE[s + 1][0]) / 2;
+    const band = Math.floor(fromTip / tipBand);
+    const color = band === 0 || band === 2 ? RED : WHITE;
+    for (let v = s * perSegment; v < (s + 1) * perSegment; v++) colors.setXYZ(v, color[0], color[1], color[2]);
+  }
+  // Leaning into the wind: the tip moves toward +z
+  return rotatePart(blade, new THREE.Matrix4().makeRotationX(-toRadians(MODEL.cone)));
+}
 
 // The model in two parts, in metres and the scene's orientation (y points down): the body (tower and nacelle) with
 // its base at the origin, and the rotor, centred on its hub and facing +z
 function buildGeometries() {
-  const { hubHeight, rotorRadius, towerRadius, tipBand } = MODEL;
-  const tower = new THREE.CylinderGeometry(towerRadius[0], towerRadius[1], hubHeight, 16, 1, true);
-  tower.translate(0, -hubHeight / 2, 0);
-  const nacelle = new THREE.BoxGeometry(3.6, 3.6, 10);
-  nacelle.translate(0, -hubHeight - 1.2, -2.5);
-
-  const hub = new THREE.SphereGeometry(1.9, 16, 12);
-  hub.scale(1, 1, 1.5);
-
-  // One blade along -y from the hub: widest (4 m) a fifth of the way out, narrowing to 0.8 m at the tip
-  const blade = new THREE.BoxGeometry(1, rotorRadius, 1, 1, 12, 1);
-  blade.translate(0, -rotorRadius / 2 - 1.5, 0);
-  const position = blade.attributes.position;
+  const { hubHeight, towerRadius, nacelle: [width, height, length], hubAbove } = MODEL;
+  const tower = prepare(new THREE.CylinderGeometry(towerRadius[0], towerRadius[1], hubHeight, 20, 1, true)
+    .translate(0, -hubHeight / 2, 0));
+  const { position, axisPoint, axisAlong, halfChord, halfThick } = tower.attributes;
   for (let i = 0; i < position.count; i++) {
-    const t = Math.min(1, (-position.getY(i) - 1.5) / rotorRadius);
-    const chord = t < 0.2 ? 2.5 + 7.5 * t : 4 - (3.2 * (t - 0.2)) / 0.8;
-    position.setX(i, position.getX(i) * chord);
-    position.setZ(i, position.getZ(i) * (1.6 * (1 - t) + 0.25));
+    const radius = Math.hypot(position.getX(i), position.getZ(i));
+    axisPoint.setXYZ(i, 0, position.getY(i), 0);
+    axisAlong.setXYZ(i, 0, -1, 0);
+    halfChord.setXYZ(i, radius, 0, 0);
+    halfThick.setXYZ(i, 0, 0, radius);
   }
-  blade.computeVertexNormals();
-  paint(blade, y => (-y > rotorRadius + 1.5 - tipBand ? RED : WHITE));
+  // The nacelle's front is just behind the hub
+  const nacelle = new THREE.BoxGeometry(width, height, length);
+  nacelle.translate(0, -hubHeight - hubAbove, MODEL.hubAhead - 1.2 - length / 2);
 
-  for (const geometry of [tower, nacelle, hub]) paint(geometry, () => WHITE);
-  const blades = [0, 1, 2].map(i => blade.clone().rotateZ((i * 2 * Math.PI) / 3));
-  const parts = { body: mergeGeometries([tower, nacelle]), rotor: mergeGeometries([hub, ...blades]) };
-  for (const geometry of [tower, nacelle, hub, blade, ...blades]) geometry.dispose();
+  // The hub's nose cone, from its back (z = -1.8) to its tip
+  const cone = [[2.1, -1.8], [2.1, 0.4], [1.9, 1.6], [1.4, 2.7], [0.7, 3.4], [0, 3.7]]
+    .map(([radius, z]) => new THREE.Vector2(radius, z));
+  const hub = new THREE.LatheGeometry(cone, 16).rotateX(Math.PI / 2);
+
+  const blade = bladeGeometry();
+  const body = [tower, prepare(nacelle)];
+  const rotor = [
+    prepare(hub),
+    ...[0, 1, 2].map(i => rotatePart(blade.clone(), new THREE.Matrix4().makeRotationZ((i * 2 * Math.PI) / 3))),
+  ];
+  const parts = { body: mergeGeometries(body), rotor: mergeGeometries(rotor) };
+  for (const geometry of [blade, ...body, ...rotor]) geometry.dispose();
   return parts;
 }
 
-// Per-instance haze (`instanceHaze`, 0 to 1) toward the `hazeColor` uniform, and a depth as if DEPTH_DISTANCE from
-// the camera along the same line of sight
-function hazeShader(hazeColor: { value: THREE.Color }) {
+// What the turbines' material adds to three.js's: thin parts widened to MIN_PIXELS on screen (see CROSS_SECTION) and
+// blended into the sky behind them (`skyColors`, at 0, 4 and 8 degrees above their bases) as much as they fall short;
+// per-instance haze (`instanceHaze`, 0 to 1) toward `hazeColor`; and a depth as if DEPTH_DISTANCE from the camera
+// along the same line of sight. `instanceBase` is where each turbine stands.
+function turbineShader(uniforms: Record<string, { value: unknown }>) {
   return (shader: { uniforms: Record<string, unknown>; vertexShader: string; fragmentShader: string }) => {
-    shader.uniforms.hazeColor = hazeColor;
+    Object.assign(shader.uniforms, uniforms);
     shader.uniforms.depthDistance = { value: DEPTH_DISTANCE };
+    shader.uniforms.minPixels = { value: MIN_PIXELS };
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float instanceHaze;\nvarying float vHaze;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHaze = instanceHaze;');
+      .replace('#include <common>', `#include <common>
+attribute float instanceHaze;
+attribute vec3 instanceBase;
+attribute vec3 axisPoint;
+attribute vec3 axisAlong;
+attribute vec3 halfChord;
+attribute vec3 halfThick;
+uniform float viewportHeight;
+uniform float minPixels;
+varying float vHaze;
+varying float vCoverage;
+varying float vElevation;
+// A view-space vector at the view-space point p as it shows on screen, in tangents of the view angle
+vec2 onScreen(vec3 v, vec3 p) { return (v.xy * -p.z + p.xy * v.z) / (p.z * p.z); }`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+vHaze = instanceHaze;
+// Degrees above the turbine's base (y points down)
+vElevation = degrees((instanceBase.y - (instanceMatrix * vec4(transformed, 1.0)).y) / length(instanceBase.xz));`)
+      .replace('#include <project_vertex>', `mat4 toView = modelViewMatrix * instanceMatrix;
+vec4 mvPosition = toView * vec4(axisPoint, 1.0);
+vec3 offset = (toView * vec4(transformed - axisPoint, 0.0)).xyz;
+vCoverage = 1.0;
+if (dot(halfChord, halfChord) > 0.0) {
+  // The cross-section's width on screen, across the centre line, in pixels
+  vec2 along = onScreen((toView * vec4(axisAlong, 0.0)).xyz, mvPosition.xyz);
+  vec2 across = dot(along, along) > 0.0 ? normalize(vec2(-along.y, along.x)) : vec2(1.0, 0.0);
+  float chordPart = dot(onScreen((toView * vec4(halfChord, 0.0)).xyz, mvPosition.xyz), across);
+  float thickPart = dot(onScreen((toView * vec4(halfThick, 0.0)).xyz, mvPosition.xyz), across);
+  float pixels = sqrt(chordPart * chordPart + thickPart * thickPart) * projectionMatrix[1][1] * viewportHeight;
+  if (pixels < minPixels) {
+    offset *= minPixels / max(pixels, 1e-4);
+    vCoverage = pixels / minPixels;
+  }
+}
+mvPosition.xyz += offset;
+gl_Position = projectionMatrix * mvPosition;`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
 uniform vec3 hazeColor;
+uniform vec3 skyColors[3];
 varying float vHaze;
+varying float vCoverage;
+varying float vElevation;
 uniform mat4 projectionMatrix;
 uniform float depthDistance;`)
       .replace('#include <opaque_fragment>', `outgoingLight = mix(outgoingLight, hazeColor, vHaze);
+vec3 sky = mix(mix(skyColors[0], skyColors[1], clamp(vElevation / 4.0, 0.0, 1.0)), skyColors[2], clamp(vElevation / 4.0 - 1.0, 0.0, 1.0));
+outgoingLight = mix(sky, outgoingLight, vCoverage);
 #include <opaque_fragment>`)
       .replace(/}\s*$/, `
   vec4 pulled = projectionMatrix * vec4(-normalize(vViewPosition) * depthDistance, 1.0);
@@ -116,14 +280,16 @@ uniform float depthDistance;`)
 export type WindTurbines = {
   /** Turns the rotors and flashes the night lights; call every frame */
   update: (seconds: number) => void;
-  setNight: (night: boolean) => void;
+  /** At night the turbines go dark and their lights flash. `plainSky` is the colour behind them when the scene's sky
+   * is hidden (at night and in fog), or null for the splat's own (SceneTurbines.sky). */
+  setConditions: (night: boolean, plainSky: THREE.Color | null) => void;
   dispose: () => void;
 };
 
 /**
  * Draws a site's real wind turbines (positions from OpenStreetMap) into the splat scene's backdrop, with turning
- * rotors, as two instanced meshes. Each turbine sits at its true compass direction from the site, `config.distance`
- * units out, scaled so it looks as big as the real one does from the site. `heading` is the site's (landmarks.json):
+ * rotors, as two instanced meshes. Each turbine sits at its true compass direction from the site, on the splat's
+ * horizon, scaled so it looks as big as the real one does from the site. `heading` is the site's (landmarks.json):
  * north is (sin h, 0, cos h) in the viewer's frame. Added to `parent`, which holds the scene in the viewer's frame.
  */
 export function addWindTurbines(parent: THREE.Object3D, config: SceneTurbines, heading: number): WindTurbines {
@@ -138,38 +304,51 @@ export function addWindTurbines(parent: THREE.Object3D, config: SceneTurbines, h
     return new THREE.Vector3(Math.sin(b + h) * level, -Math.sin(toRadians(elevation)), Math.cos(b + h) * level);
   };
 
-  const sun = new THREE.DirectionalLight('#fff6e8', 2.4);
+  const sun = new THREE.DirectionalLight(SUN.color, SUN.intensity);
   sun.position.copy(direction(SUN.bearing, SUN.elevation));
   // y points down, so the sky side of the hemisphere light is -y
-  const skyLight = new THREE.HemisphereLight('#e6eef8', '#b9a98f', 1.9);
+  const skyLight = new THREE.HemisphereLight(SKY_LIGHT.sky, SKY_LIGHT.ground, SKY_LIGHT.intensity);
   skyLight.position.set(0, -1, 0);
   group.add(sun, skyLight);
 
   // Where each turbine stands, and its size (viewer units per model metre)
-  const placed = config.turbines.map(([lat, lng, hub, rotor]) => {
+  const placed = config.turbines.map(([lat, lng, hub, rotor, distance, baseElevation]) => {
     const { bearing, metres } = bearingAndDistance(config.origin, [lat, lng]);
     const hubScale = hub / MODEL.hubHeight;
-    const base = direction(bearing, config.baseElevation)
-      .multiplyScalar(config.distance / Math.cos(toRadians(config.baseElevation)));
-    return { base, scale: (config.distance / metres) * hubScale, rotorScale: rotor / 2 / MODEL.rotorRadius / hubScale, metres };
+    const base = direction(bearing, baseElevation).multiplyScalar(distance / Math.cos(toRadians(baseElevation)));
+    return { base, scale: (distance / metres) * hubScale, rotorScale: rotor / 2 / MODEL.rotorRadius / hubScale, metres };
   });
 
   const geometries = buildGeometries();
   const haze = new Float32Array(placed.length);
-  placed.forEach(({ metres }, index) => {
+  const bases = new Float32Array(placed.length * 3);
+  placed.forEach(({ metres, base }, index) => {
     haze[index] = 1 - Math.exp(-metres / HAZE.metres);
+    base.toArray(bases, index * 3);
   });
   for (const geometry of Object.values(geometries)) {
     geometry.setAttribute('instanceHaze', new THREE.InstancedBufferAttribute(haze, 1));
+    geometry.setAttribute('instanceBase', new THREE.InstancedBufferAttribute(bases, 3));
   }
   const dayHaze = new THREE.Color(HAZE.color);
-  const hazeColor = { value: dayHaze.clone() };
+  const daySky = config.sky.map(color => new THREE.Color(color));
+  const uniforms = {
+    hazeColor: { value: dayHaze.clone() },
+    skyColors: { value: daySky.map(color => color.clone()) },
+    viewportHeight: { value: 1 },
+  };
   const material = new THREE.MeshLambertMaterial({ vertexColors: true });
-  material.onBeforeCompile = hazeShader(hazeColor);
+  material.onBeforeCompile = turbineShader(uniforms);
   material.customProgramCacheKey = () => 'wind-turbine';
 
   const bodies = new THREE.InstancedMesh(geometries.body, material, placed.length);
   const rotors = new THREE.InstancedMesh(geometries.rotor, material, placed.length);
+  // The widening needs the size of the image being drawn: the canvas, or one eye's in VR
+  const viewport = new THREE.Vector4();
+  bodies.onBeforeRender = (renderer) => {
+    uniforms.viewportHeight.value = renderer.getCurrentViewport(viewport).w;
+  };
+  rotors.onBeforeRender = bodies.onBeforeRender;
   // The rotors face the wind (which blows from windFrom), so their front (+z) points that way
   const windward = direction(config.windFrom);
   const yaw = Math.atan2(windward.x, windward.z);
@@ -191,9 +370,11 @@ export function addWindTurbines(parent: THREE.Object3D, config: SceneTurbines, h
   });
   const rotation = new THREE.Matrix4();
   const rotorScaling = new THREE.Matrix4();
+  // The rotor's centre, its axis tilted up (y points down, so a positive turn about x lifts +z)
+  rotorOffset.makeTranslation(0, -MODEL.hubHeight - MODEL.hubAbove, MODEL.hubAhead)
+    .multiply(new THREE.Matrix4().makeRotationX(toRadians(MODEL.tilt)));
   const turn = (seconds: number) => {
     placed.forEach(({ rotorScale }, index) => {
-      rotorOffset.makeTranslation(0, -MODEL.hubHeight - 1.2, 4.2);
       rotation.makeRotationZ(jitter(index, 3) * 2 * Math.PI + speeds[index] * seconds);
       rotorScaling.makeScale(rotorScale, rotorScale, rotorScale);
       matrix.copy(turbineMatrices[index]).multiply(rotorOffset).multiply(rotation).multiply(rotorScaling);
@@ -209,7 +390,7 @@ export function addWindTurbines(parent: THREE.Object3D, config: SceneTurbines, h
   // Night lights: one point on each nacelle, a few pixels across at any distance
   const lightPositions = new Float32Array(placed.length * 3);
   placed.forEach(({ base, scale }, index) => {
-    lightPositions.set([base.x, base.y - (MODEL.hubHeight + 3.4) * scale, base.z], index * 3);
+    lightPositions.set([base.x, base.y - (MODEL.hubHeight + MODEL.hubAbove + MODEL.nacelle[1] / 2) * scale, base.z], index * 3);
   });
   const lightGeometry = new THREE.BufferGeometry();
   lightGeometry.setAttribute('position', new THREE.BufferAttribute(lightPositions, 3));
@@ -230,12 +411,13 @@ export function addWindTurbines(parent: THREE.Object3D, config: SceneTurbines, h
       if (!still) turn(seconds);
       if (night) lights.visible = still || seconds % LIGHT_PERIOD_SECONDS < LIGHT_PERIOD_SECONDS / 2;
     },
-    setNight(value) {
+    setConditions(value, plainSky) {
       night = value;
       lights.visible = value;
-      sun.intensity = value ? 0 : 2.4;
-      skyLight.intensity = value ? 0.035 : 1.9;
-      hazeColor.value.copy(value ? new THREE.Color(NIGHT_HAZE) : dayHaze);
+      sun.intensity = value ? 0 : SUN.intensity;
+      skyLight.intensity = value ? SKY_LIGHT.night : SKY_LIGHT.intensity;
+      uniforms.hazeColor.value.copy(value ? new THREE.Color(NIGHT_HAZE) : dayHaze);
+      uniforms.skyColors.value.forEach((color, index) => color.copy(plainSky ?? daySky[index]));
     },
     dispose() {
       group.removeFromParent();

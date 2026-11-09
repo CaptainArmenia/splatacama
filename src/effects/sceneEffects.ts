@@ -158,9 +158,9 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     for (const mesh of environment?.terrain ?? []) (mesh.material as THREE.MeshBasicMaterial).color.copy(tint);
     if (environment?.sky) environment.sky.visible = !night && !fogOn;
     sky.group.visible = night;
-    turbines?.setNight(night);
 
     const fogColor = night ? FOG.nightColor : FOG.color;
+    turbines?.setConditions(night, fogOn ? fogColor : night ? NIGHT.background : null);
     sceneFog.color.copy(fogColor);
     sceneFog.near = fogOn ? FOG.near * unitsPerMetre : 1e8;
     sceneFog.far = fogOn ? FOG.far * unitsPerMetre : 1e9;

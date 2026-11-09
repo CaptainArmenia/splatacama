@@ -105,6 +105,14 @@ The map currently has four sites. `pirca0` is the original capture, at its origi
 
 To try scene files before uploading them, put them in `public/local-splats/` (gitignored) and point a site's URLs at `http://localhost:<port>/local-splats/<file>` without committing that. Files in the bucket only load on `http://localhost:3000` (see the CORS note below).
 
+### Wind turbines
+
+[src/data/windTurbines.json](src/data/windTurbines.json) lists the real turbines in view of a site (positions from OpenStreetMap), and [src/utils/windTurbines.ts](src/utils/windTurbines.ts) draws them in the scene's backdrop with turning rotors. Each turbine is drawn at its true compass bearing but much nearer than it really is, scaled to look as big as the real one.
+
+Each entry ends with a distance and a base elevation: where the splat's ground meets the sky below that turbine. Placed anywhere else, a turbine drifts off the horizon as the camera moves, and floats above it when the camera rises. A splat's far ground is a soft smear, so these numbers can't be read from the splat file. They're fitted to renders instead: the scene is rendered with the turbines hidden from about 30 camera positions inside the orbit limits, the horizon under each turbine is found in every image, and each turbine gets the point that best matches all of them. `sky` holds the sky colours behind the turbines, measured from the same renders; blades thinner than a pixel are faded toward them. The scripts are in `~/datasets/pircas-work/tools/turbines/` on the machine that built the splats; their README says how to run them. Re-run them if a site's `.splat` is replaced.
+
+`windFrom` sets which way the rotors face. For pirca0 it's 200°, which shows the rotors almost side-on from the site, as in its photo.
+
 ## Project layout
 
 ```
