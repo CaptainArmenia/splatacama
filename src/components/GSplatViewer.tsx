@@ -9,6 +9,7 @@ import { buildWalkArea } from '@/utils/walkArea';
 import { isVRSupported, VRWalk } from '@/utils/vrWalk';
 import { loadSceneEnvironment, type LoadedEnvironment } from '@/utils/sceneEnvironment';
 import { addWindTurbines, type WindTurbines } from '@/utils/windTurbines';
+import { createMeshAntialias } from '@/utils/meshAntialias';
 import { analyzeSite, parseSplat, type SiteAnalysis } from '@/effects/siteAnalysis';
 import { createSceneEffects, type SceneEffects } from '@/effects/sceneEffects';
 import SceneEffectsPanel, { type QuakeState } from '@/components/SceneEffectsPanel';
@@ -205,6 +206,8 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     world.name = 'site';
     scene.add(world);
     const spark = new SparkRenderer({ renderer, maxStdDev: SPLAT_STD_DEV });
+    // Smooths the meshes' edges (terrain, turbines) without touching the splats; not in VR
+    const meshAntialias = createMeshAntialias(renderer);
     scene.add(spark);
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -280,7 +283,8 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       const shake = effects?.update(time / 1000, deltaSeconds, camera);
       if (shake) camera.position.add(shake);
       soundRef.current?.setListener(camera, world);
-      renderer.render(scene, camera);
+      if (renderer.xr.isPresenting) renderer.render(scene, camera);
+      else meshAntialias.render(scene, camera, spark);
       if (shake) camera.position.sub(shake);
     });
 
@@ -410,6 +414,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       windTurbines?.dispose();
       environment?.dispose();
       spark.dispose();
+      meshAntialias.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
       viewerContainer.remove();

@@ -148,6 +148,7 @@ src/
     cesiumMarkerManager.ts    updates pin image and scale; resets the camera
     cesiumPinClusters.ts      merges overlapping pins into clusters and fans them out on click
     sceneEnvironment.ts       terrain and sky around a cropped splat, with the terrain's detail texture
+    meshAntialias.ts          smooths the meshes' edges (FXAA) without touching the splats
     windTurbines.ts           real wind turbines on a scene's terrain or backdrop, with turning rotors
     sceneSound.ts             the scene's sound (Web Audio): mute, start on the first click, listener follows the camera
     windAmbience.ts           wind made from noise, in gusts (no recording)
