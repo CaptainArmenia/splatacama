@@ -98,19 +98,20 @@ const RED = [0.75, 0.06, 0.05];
 const CROSS_SECTION = ['axisPoint', 'axisAlong', 'halfChord', 'halfThick'];
 const MIN_PIXELS = 1.5;
 
-// Unindexed, without texture coordinates, with cross-section attributes and painted white, so the parts merge
+// Without texture coordinates, with cross-section attributes and painted white where not painted yet, so the parts
+// merge. Parts keep their shared vertices: a site can have hundreds of turbines in view, all drawn every frame.
 const prepare = (geometry: THREE.BufferGeometry) => {
-  const flat = geometry.index ? geometry.toNonIndexed() : geometry;
-  if (flat !== geometry) geometry.dispose();
-  flat.deleteAttribute('uv');
-  const count = flat.attributes.position.count;
+  geometry.deleteAttribute('uv');
+  const count = geometry.attributes.position.count;
   for (const name of CROSS_SECTION) {
-    if (!flat.attributes[name]) flat.setAttribute(name, new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+    if (!geometry.attributes[name]) geometry.setAttribute(name, new THREE.BufferAttribute(new Float32Array(count * 3), 3));
   }
-  const colors = new Float32Array(count * 3);
-  for (let i = 0; i < colors.length; i += 3) colors.set(WHITE, i);
-  flat.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  return flat;
+  if (!geometry.attributes.color) {
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < colors.length; i += 3) colors.set(WHITE, i);
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  }
+  return geometry;
 };
 
 // Turns a part and its cross-section attributes
@@ -124,12 +125,26 @@ const rotatePart = (geometry: THREE.BufferGeometry, rotation: THREE.Matrix4) => 
 
 // One blade along -y from the rotor's centre, from the BLADE table: a ring of BLADE_SIDES points at each distance,
 // an airfoil-like oval (round leading edge at -x, the side it moves toward; sharp trailing edge), turned by its twist
-// and the pitch
+// and the pitch. Painted in bands: each segment by how far its middle is from the tip, red, white, red, then white to
+// the root. Where the colour changes, the ring is doubled, one for each colour, so the bands have sharp edges.
 function bladeGeometry() {
   const { rotorRadius, tipBand } = MODEL;
+  const segmentColor = BLADE.slice(1).map(([r], s) => {
+    const band = Math.floor((rotorRadius - (BLADE[s][0] + r) / 2) / tipBand);
+    return band === 0 || band === 2 ? RED : WHITE;
+  });
   const positions: number[] = [];
+  const colors: number[] = [];
   const section: Record<string, number[]> = { axisPoint: [], axisAlong: [], halfChord: [], halfThick: [] };
-  for (const [r, chord, thickness, twist] of BLADE) {
+  // Each station's rings: the one its lower segment uses, and the one its upper segment uses
+  const ringsAt: number[][] = [];
+  let rings = 0;
+  BLADE.forEach(([r, chord, thickness, twist], station) => {
+    const below = segmentColor[station - 1];
+    const above = segmentColor[station];
+    const ringColors = below && above && below !== above ? [below, above] : [below ?? above];
+    ringsAt.push([rings, rings + ringColors.length - 1]);
+    rings += ringColors.length;
     // A round root stays centred; further out the blade turns about a line a third of the way back from its leading edge
     const flatness = (1 - thickness) / (1 - BLADE[BLADE.length - 1][2]);
     const shift = 0.2 * flatness;
@@ -138,44 +153,39 @@ function bladeGeometry() {
     const twisted = (x: number, z: number) => [x * Math.cos(angle) + z * Math.sin(angle), -x * Math.sin(angle) + z * Math.cos(angle)];
     const [chordX, chordZ] = twisted(chord / 2, 0);
     const [thickX, thickZ] = twisted(0, (chord * thickness) / 2);
-    for (let j = 0; j < BLADE_SIDES; j++) {
-      const a = (j / BLADE_SIDES) * 2 * Math.PI;
-      const x = chord * (shift + 0.5 * Math.cos(a));
-      const taper = Math.cos(a) > 0 ? 1 - 0.75 * flatness * Math.cos(a) ** 2 : 1;
-      const [px, pz] = twisted(x, ((chord * thickness) / 2) * Math.sin(a) * taper);
-      positions.push(px, -r, pz);
-      section.axisPoint.push(0, -r, 0);
-      section.axisAlong.push(0, -1, 0);
-      section.halfChord.push(chordX, 0, chordZ);
-      section.halfThick.push(thickX, 0, thickZ);
+    for (const color of ringColors) {
+      for (let j = 0; j < BLADE_SIDES; j++) {
+        const a = (j / BLADE_SIDES) * 2 * Math.PI;
+        const x = chord * (shift + 0.5 * Math.cos(a));
+        const taper = Math.cos(a) > 0 ? 1 - 0.75 * flatness * Math.cos(a) ** 2 : 1;
+        const [px, pz] = twisted(x, ((chord * thickness) / 2) * Math.sin(a) * taper);
+        positions.push(px, -r, pz);
+        colors.push(...color);
+        section.axisPoint.push(0, -r, 0);
+        section.axisAlong.push(0, -1, 0);
+        section.halfChord.push(chordX, 0, chordZ);
+        section.halfThick.push(thickX, 0, thickZ);
+      }
     }
-  }
+  });
   const index: number[] = [];
   for (let s = 0; s < BLADE.length - 1; s++) {
+    const lower = ringsAt[s][1] * BLADE_SIDES;
+    const upper = ringsAt[s + 1][0] * BLADE_SIDES;
     for (let j = 0; j < BLADE_SIDES; j++) {
-      const a = s * BLADE_SIDES + j;
-      const b = a + BLADE_SIDES;
-      const c = s * BLADE_SIDES + ((j + 1) % BLADE_SIDES);
-      const d = c + BLADE_SIDES;
+      const a = lower + j;
+      const b = upper + j;
+      const c = lower + ((j + 1) % BLADE_SIDES);
+      const d = upper + ((j + 1) % BLADE_SIDES);
       index.push(a, c, b, c, d, b);
     }
   }
-  const smooth = new THREE.BufferGeometry();
-  smooth.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  for (const name of CROSS_SECTION) smooth.setAttribute(name, new THREE.Float32BufferAttribute(section[name], 3));
-  smooth.setIndex(index);
-  smooth.computeVertexNormals();
-  const blade = prepare(smooth);
-
-  // Each segment's colour from how far its middle is from the tip: red, white, red, then white to the root
-  const colors = blade.attributes.color;
-  const perSegment = BLADE_SIDES * 6;
-  for (let s = 0; s < BLADE.length - 1; s++) {
-    const fromTip = rotorRadius - (BLADE[s][0] + BLADE[s + 1][0]) / 2;
-    const band = Math.floor(fromTip / tipBand);
-    const color = band === 0 || band === 2 ? RED : WHITE;
-    for (let v = s * perSegment; v < (s + 1) * perSegment; v++) colors.setXYZ(v, color[0], color[1], color[2]);
-  }
+  const blade = new THREE.BufferGeometry();
+  blade.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  blade.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  for (const name of CROSS_SECTION) blade.setAttribute(name, new THREE.Float32BufferAttribute(section[name], 3));
+  blade.setIndex(index);
+  blade.computeVertexNormals();
   // Leaning into the wind: the tip moves toward +z
   return rotatePart(blade, new THREE.Matrix4().makeRotationX(-toRadians(MODEL.cone)));
 }

@@ -49,9 +49,10 @@ export interface SceneEnvironment {
 
 // Real wind turbines near a site, drawn by src/utils/windTurbines.ts: each at its true compass direction from `origin`,
 // scaled to look as big as the real one. On a site with terrain they stand on it at their real distances; without,
-// they're a backdrop on the splat's horizon. src/data/windTurbines.json holds them by site id. Positions are from OpenStreetMap (generator:source=wind, fetched 2026-11-02): pirca0 shows
-// the Cabo Leones II row in its photo. Pirca 1 and 2 have none within 25 km, and Pirca 3's, 9-25 km north, are hidden
-// behind the ridge north of it.
+// they're a backdrop on the splat's horizon. src/data/windTurbines.json holds them by site id. pirca0 has every turbine
+// within 20 km in OpenStreetMap (fetched 2026-11-09; the pipeline's tools/turbines/osm_turbines.py writes them): seven
+// farms, the nearest 530 m away, and Cabo Leones II's row in its photo. Pirca 1 and 2 have none within 25 km, and
+// Pirca 3's, 9-25 km north, are hidden behind the ridge north of it.
 export interface SceneTurbines {
   // [lat, lng] where the scene was captured: bearings and distances to the turbines are measured from here
   origin: number[];
@@ -61,7 +62,7 @@ export interface SceneTurbines {
   // thinner than a pixel are drawn a little wider and faded toward it
   sky: string[];
   // [lat, lng, hub height in metres, rotor diameter in metres, distance, base elevation] for each turbine. The sizes
-  // are a generic 2-3 MW one. Distance (viewer units, from the site centre) and base elevation (degrees above level,
+  // are its wind farm's model (osm_turbines.py lists them and their sources). Distance (viewer units, from the site centre) and base elevation (degrees above level,
   // seen from the site centre at ground height) place its base: on a site with terrain, where the terrain is under the
   // turbine (the pipeline's env_build.py --turbines writes them); without, where the splat's horizon is below it, so
   // the two stay together as the camera moves, fitted to renders from many camera positions (README, "Wind turbines").
