@@ -17,7 +17,7 @@ const eslintConfig = [
     rules: {
       // Cesium and splat-viewer objects are typed `any` throughout, on purpose (see CLAUDE.md)
       "@typescript-eslint/no-explicit-any": "off",
-      // Preview images are proxied R2 files; next/image's optimizer isn't set up for them
+      // Preview images come straight from the R2 bucket; next/image's optimizer isn't set up for it
       "@next/next/no-img-element": "off",
     },
   },

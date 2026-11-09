@@ -14,6 +14,36 @@ interface PinCluster {
 }
 
 /**
+ * Groups points that are closer than `maxDistance`. Greedy: in input order, each point not yet grouped takes every
+ * other ungrouped point within `maxDistance` of it. Returns the groups of two or more, each as sorted ids.
+ */
+export function groupOverlapping(points: { id: string; x: number; y: number }[], maxDistance: number): string[][] {
+  const grouped = new Set<string>();
+  const groups: string[][] = [];
+  points.forEach(point => {
+    if (grouped.has(point.id)) return;
+    const group = points.filter(other =>
+      !grouped.has(other.id) && Math.hypot(point.x - other.x, point.y - other.y) < maxDistance
+    );
+    group.forEach(member => grouped.add(member.id));
+    if (group.length > 1) groups.push(group.map(member => member.id).sort());
+  });
+  return groups;
+}
+
+/**
+ * Screen offsets that fan `count` pins out in a ring, the first one to the left. `progress` runs from 0 (all at
+ * the center) to 1 (fully out). The ring grows with the count so pins don't overlap.
+ */
+export function fanOutOffsets(count: number, progress: number): { x: number; y: number }[] {
+  const radius = Math.max(MARKER_CONFIG.explodeRadius, count * 10);
+  return Array.from({ length: count }, (_, i) => {
+    const angle = Math.PI + (2 * Math.PI * i) / count;
+    return { x: Math.cos(angle) * radius * progress, y: Math.sin(angle) * radius * progress };
+  });
+}
+
+/**
  * Groups pins that overlap on screen into one cluster marker, and fans a cluster's pins out when it's clicked.
  *
  * This replaces Cesium's EntityCluster, which deletes and recreates every cluster marker each time the camera
@@ -77,26 +107,16 @@ export function setupPinClusters(
     const now = performance.now();
     const fannedOut = new Set(exploded?.memberIds ?? []);
 
+    // Pins on screen, at their canvas position (undefined when behind the globe)
     const onScreen = pins()
       .filter((entity: any) => !fannedOut.has(entity.id))
       .map((entity: any) => ({
-        entity,
+        id: entity.id as string,
         position: viewer.scene.cartesianToCanvasCoordinates(entity.position.getValue(time))
       }))
-      .filter(item => item.position);
-
-    // Greedy grouping: each ungrouped pin takes every ungrouped pin within clusterDistance of it
-    const grouped = new Set<string>();
-    const groups: string[][] = [];
-    onScreen.forEach(item => {
-      if (grouped.has(item.entity.id)) return;
-      const group = onScreen.filter(other =>
-        !grouped.has(other.entity.id) &&
-        cesium.Cartesian2.distance(item.position, other.position) < MARKER_CONFIG.clusterDistance
-      );
-      group.forEach(member => grouped.add(member.entity.id));
-      if (group.length > 1) groups.push(group.map(member => member.entity.id).sort());
-    });
+      .filter(item => item.position)
+      .map(item => ({ id: item.id, x: item.position.x, y: item.position.y }));
+    const groups = groupOverlapping(onScreen, MARKER_CONFIG.clusterDistance);
 
     // Create new clusters, refresh the image of existing ones if a member's photo changed
     const liveKeys = new Set<string>();
@@ -156,13 +176,9 @@ export function setupPinClusters(
   const removeUpdateListener = viewer.scene.preUpdate.addEventListener(update);
 
   const setOffsets = (memberIds: string[], progress: number) => {
-    const radius = Math.max(MARKER_CONFIG.explodeRadius, memberIds.length * 10);
+    const offsets = fanOutOffsets(memberIds.length, progress);
     memberIds.forEach((id, i) => {
-      const angle = Math.PI + (2 * Math.PI * i) / memberIds.length; // first pin to the left
-      entityRefs.current[id].billboard.pixelOffset = new cesium.Cartesian2(
-        Math.cos(angle) * radius * progress,
-        Math.sin(angle) * radius * progress
-      );
+      entityRefs.current[id].billboard.pixelOffset = new cesium.Cartesian2(offsets[i].x, offsets[i].y);
     });
   };
 

@@ -68,75 +68,58 @@ const drawImageInCircle = (
 };
 
 /**
- * Creates a circular image canvas from an image URL with robust CORS handling. If the image can't be loaded,
- * tries `fallbackUrl` (e.g. the full preview when a thumbnail is missing), then the plain orange marker.
+ * Loads an image that will be drawn into a canvas and uploaded to WebGL. Rejects on a load error or after
+ * `timeoutMs`; a promise settles once, so a timeout and the error it triggers can't both act.
  */
-export const createCircularImageCanvas = (
+const loadImage = (url: string, timeoutMs: number): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    const timeout = setTimeout(() => {
+      img.src = ''; // cancel the request
+      reject(new Error('timed out'));
+    }, timeoutMs);
+    img.onload = () => {
+      clearTimeout(timeout);
+      resolve(img);
+    };
+    img.onerror = () => {
+      clearTimeout(timeout);
+      reject(new Error('failed to load'));
+    };
+    // A cross-origin image without CORS would taint the canvas, and WebGL refuses tainted canvases
+    img.crossOrigin = 'anonymous';
+    img.src = url;
+  });
+
+/**
+ * Draws a pin with the center square of an image in its circle. If the image can't be loaded, tries
+ * `fallbackUrl` (e.g. the full preview when a thumbnail is missing), then returns the plain orange marker.
+ */
+export const createCircularImageCanvas = async (
   imageUrl: string,
   size: number = MARKER_CONFIG.defaultSize,
   fallbackUrl?: string
 ): Promise<HTMLCanvasElement> => {
-  const loadFallback = (): Promise<HTMLCanvasElement> | HTMLCanvasElement =>
-    fallbackUrl && fallbackUrl !== imageUrl ? createCircularImageCanvas(fallbackUrl, size) : createFallbackMarker(size);
+  let img: HTMLImageElement;
+  try {
+    img = await loadImage(imageUrl, 5000);
+  } catch (error) {
+    console.warn(`Pin image ${imageUrl} ${(error as Error).message}, using fallback`);
+    return fallbackUrl && fallbackUrl !== imageUrl
+      ? createCircularImageCanvas(fallbackUrl, size)
+      : createFallbackMarker(size);
+  }
 
-  return new Promise((resolve) => {
-    const { canvas, ctx } = createMarkerCanvas(size);
-
-    if (!ctx) {
-      console.warn('Could not get canvas context, using fallback');
-      resolve(createFallbackMarker(size));
-      return;
-    }
-
-    const img = new Image();
-
-    const drawImageToCanvas = () => {
-      try {
-        const innerRadius = drawPinBase(ctx, size);
-        drawImageInCircle(ctx, img, size / 2, size / 2, innerRadius);
-        resolve(canvas);
-      } catch (error) {
-        console.warn('Canvas drawing error, using fallback:', error);
-        resolve(createFallbackMarker(size));
-      }
-    };
-
-    // Set up error handler - use fallback on any error
-    img.onerror = () => {
-      console.warn('Image load failed, using fallback for:', imageUrl);
-      resolve(loadFallback());
-    };
-
-    // Set up success handler
-    img.onload = drawImageToCanvas;
-
-    // Add timeout
-    const timeout = setTimeout(() => {
-      if (!img.complete) {
-        img.src = ''; // Cancel request
-        console.warn('Image load timed out, using fallback for:', imageUrl);
-        resolve(loadFallback());
-      }
-    }, 5000); // 5 second timeout
-
-    // Clear timeout on completion
-    const originalOnload = img.onload;
-    const originalOnerror = img.onerror;
-
-    img.onload = (ev: Event) => {
-      clearTimeout(timeout);
-      if (originalOnload) originalOnload.call(img, ev);
-    };
-
-    img.onerror = (ev: Event | string) => {
-      clearTimeout(timeout);
-      if (originalOnerror) originalOnerror.call(img, ev);
-    };
-
-    // Always use CORS to prevent canvas tainting for WebGL
-    img.crossOrigin = 'anonymous';
-    img.src = imageUrl;
-  });
+  const { canvas, ctx } = createMarkerCanvas(size);
+  if (!ctx) return createFallbackMarker(size);
+  try {
+    const innerRadius = drawPinBase(ctx, size);
+    drawImageInCircle(ctx, img, size / 2, size / 2, innerRadius);
+    return canvas;
+  } catch (error) {
+    console.warn('Canvas drawing error, using fallback:', error);
+    return createFallbackMarker(size);
+  }
 };
 
 /**

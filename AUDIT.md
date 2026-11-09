@@ -6,7 +6,7 @@ Audited on 2026-09-27 at commit `1d6a321`. Covers everything in `src/`, the conf
 
 Items are numbered so they can be referenced in commits ("fixes audit #5"). Check an item off when it's done.
 
-**Status on 2026-09-28:** 19 of 23 items are done. Four are partly done and each needs something outside the code: #3 (a CORS rule on the R2 bucket), #11 (upload the thumbnails), #17 (revoke the old Cesium token) and #20 (tests and strict TypeScript).
+**Status on 2026-10-31:** 21 of 23 items are done, and everything in the code is fixed. Two items still need someone with the accounts: #11 (upload the pin thumbnails to R2) and #17 (revoke the old Cesium token). Problems found since the audit are listed [at the end](#found-after-the-audit).
 
 ## Summary
 
@@ -14,7 +14,7 @@ Items are numbered so they can be referenced in commits ("fixes audit #5"). Chec
 | --- | --- | --- | --- |
 | 1 | ~~Critical~~ Done | Security | Next.js 15.3.1 has a remote code execution vulnerability |
 | 2 | ~~High~~ Done | Security | Image proxy fetches and serves any URL containing "cloudflare" |
-| 3 | High (partly done) | Performance | Every `.splat` file is downloaded in full by a server function before it reaches the browser |
+| 3 | ~~High~~ Done | Performance | Every `.splat` file is downloaded in full by a server function before it reaches the browser |
 | 4 | ~~High~~ Done | Security | 152 dependency advisories, most from packages the code never uses |
 | 5 | ~~Medium~~ Done | Bug | Cesium viewer is never destroyed, and a second one can be created on top of the first |
 | 6 | ~~Medium~~ Done | Bug | Splat viewer can load twice and restart after it was torn down |
@@ -31,7 +31,7 @@ Items are numbered so they can be referenced in commits ("fixes audit #5"). Chec
 | 17 | Low (partly done) | Maintenance | Dead code and leftover files, including a hardcoded Cesium ion token |
 | 18 | ~~Low~~ Done | Maintenance | Values and types defined twice |
 | 19 | ~~Low~~ Done | Build | Build copies Cesium assets on every compilation and transpiles all of Cesium |
-| 20 | Low (partly done) | Tooling | No lint, no tests, loose TypeScript, and hand-written types that override React's |
+| 20 | ~~Low~~ Done | Tooling | No lint, no tests, loose TypeScript, and hand-written types that override React's |
 | 21 | ~~Low~~ Done | Bug | Splat format detection depends on the URL happening to end in `.splat` |
 | 22 | ~~Low~~ Done | Performance | Every hover and selection re-applies all pin images |
 | 23 | ~~Low~~ Done | UI | Small layout and code issues |
@@ -65,9 +65,11 @@ For example, `/api/image-proxy?url=https://attacker.example/page.html?cloudflare
 **Fix:** parse the URL with `new URL()`, require `https:` and an exact hostname match against the R2 domain (read from a server-side environment variable), and only pass through `image/*` and `application/octet-stream`. Add `X-Content-Type-Options: nosniff`. Better still, remove the proxy (see #3). This was confirmed by reading the code; it was not tried against production.
 
 ### 3. Every `.splat` file is downloaded in full by a server function before it reaches the browser
-- [ ] Partly done (2026-09-28)
+- [x] Done (2026-10-31)
 
-**Progress:** The proxy now streams the body instead of buffering it, passes `Content-Length` through (so the splat viewer shows download progress), and sets `s-maxage` so the CDN can cache responses. **Still to do (needs the Cloudflare dashboard):** add a CORS rule on the R2 bucket allowing `GET` from the site's origin, then load R2 URLs directly and delete the proxy.
+**Resolved:** The R2 bucket now has a CORS rule allowing `GET` from `https://splatacama.vercel.app` and `http://localhost:3000`. The browser loads splats and images straight from the bucket, and the proxy route is deleted, so the site has no server code left and every page is static. `assetUrl()` (`src/utils/assetUrl.ts`) builds the URLs; it's synchronous, so the preview URL state and loading spinners that waited on the old async helper are gone. Checked in a production build served as `localhost:3000`: the splat, previews and pin photos all load from R2, with no requests to the old route. Two things to know: Vercel preview deployments and other local ports aren't in the CORS rule, so assets don't load there until their origin is added; and Cloudflare rate-limits `r2.dev` addresses and recommends a custom domain for production traffic. The proxy had been shielding the bucket behind Vercel's CDN cache.
+
+(2026-09-28, before the CORS rule existed: the proxy was changed to stream the body, pass `Content-Length` through and set `s-maxage`.)
 
 **Where:** `src/utils/blobUtils.ts:12`, `:34`; `src/app/api/image-proxy/route.ts:29`
 
@@ -292,9 +294,11 @@ Never imported: `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner`, `@deck.gl
 `CopyWebpackPlugin` is added to every webpack compilation (client and server, and on every dev rebuild), so Cesium's asset folders are copied into `public/cesium/` repeatedly. `transpilePackages: ['cesium']` makes webpack run all of Cesium through the compiler, which Cesium's ES module build likely doesn't need. The effect on build time wasn't measured. `experimental.externalDir` isn't needed either.
 
 ### 20. No lint, no tests, loose TypeScript, and hand-written types that override React's
-- [ ] Partly done (2026-09-28)
+- [x] Done (2026-10-31)
 
-**Progress:** ESLint is back: `pnpm lint` runs `eslint .` with 0 errors and 0 warnings, and `next build` lints again. `no-explicit-any` is off on purpose (see CLAUDE.md). `src/env.d.ts` and its type overrides are deleted, and `tsconfig.json` uses Next.js's standard settings (`moduleResolution: "bundler"`). **Not done:** there's still no test suite, and `strict` is still off.
+**Resolved:** `tsconfig.json` has `strict: true`. It surfaced two errors: a ref type that didn't allow `null`, and the splat library's missing type declarations (now declared as `any` in `src/types/gaussian-splats-3d.d.ts`, matching how Cesium is typed). `pnpm test` runs Vitest: 23 tests covering `assetUrl()`, the pin grouping and fan-out math (moved out of the Cesium code into pure functions for this), and the site list. The site-list test rejects a site whose assets point outside the bucket, which catches a local test entry left in `landmarks.json`. Vercel doesn't run the tests; there's no CI.
+
+(2026-09-28: ESLint restored with 0 problems, `src/env.d.ts` deleted, `moduleResolution: "bundler"`.)
 
 - `pnpm lint` (`package.json:9`) fails because ESLint was removed. `next build` skips linting too.
 - There are no tests.
@@ -328,3 +332,14 @@ The "load initial markers" effect depends on `selectedLandmark` and `hoveredLand
 - The open info toggle in `ToggleableInfoPanel.tsx` has both `bg-black` and `bg-orange-600`. Which color shows depends on CSS order, not on intent.
 - `new cesium.ImageryLayer.fromProviderAsync(...)` (`useCesiumViewer.ts:63`) calls a factory function with `new`. It only works because the factory returns an object.
 - The map briefly shows an unstyled "Loading Cesium..." line (`CesiumMapComponent.tsx:148`) between two styled spinners.
+
+## Found after the audit
+
+Reviewed on 2026-10-31, at the code as of `cd27859`, which includes the pin clustering, marker drawing and splat loading panel written after the audit. All fixed on 2026-10-31.
+
+- **Pin image loader could fetch the fallback twice.** When a pin photo timed out, the loader cleared the image's source, which also fired its error handler; both paths started loading the fallback image. The loader is rewritten around a promise that settles once (`src/utils/cesiumMarkers.ts`).
+- **The viewer was handed out by reading a ref during render.** `useCesiumViewer` returned `viewerRef.current` from render, which only worked because a separate state change happened to re-render afterwards. The viewer is now state, and `mapLoaded` is derived from it.
+- **The layer picker restyling searched the whole page.** It now looks only inside its own map container.
+- **The compass had 40 lines of shortest-path rotation tracking.** That only matters with a CSS transition, and the transition is off, so it now sets the rotation from the camera heading directly.
+- **The two info panels duplicated their preview block, close button and description.** Both now use `LandmarkDetails` (`src/components/LandmarkDetails.tsx`). The three copies of the loading spinner are one `LoadingMessage`.
+- **Dead branches and stale comments.** Server-rendering checks in a component that only renders in the browser; a hook that only wrapped `useRef`; comments in `cesiumConfig.ts` that described old values ("hover 3.0" next to 1.2, "10-degree inclination" next to -30).

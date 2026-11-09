@@ -1,9 +1,7 @@
 'use client';
-// Import React using the default import syntax
-import React from 'react';
-// Then import individual hooks separately
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
+import { LoadingMessage } from './LoadingMessage';
 import type { MapLandmark } from '@/types/cesium';
 // Imported statically so the list is there on the first render. The viewer is built from it, and a list that
 // arrived later would make the viewer rebuild.
@@ -21,10 +19,7 @@ const CesiumMapComponent = dynamic(
     ssr: false,
     loading: () => (
       <div className="h-full w-full flex items-center justify-center bg-white">
-        <div className="text-center">
-          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-orange-500 border-r-transparent align-[-0.125em]" />
-          <p className="mt-2">Cargando mapa 3D...</p>
-        </div>
+        <LoadingMessage message="Cargando mapa 3D..." />
       </div>
     )
   }

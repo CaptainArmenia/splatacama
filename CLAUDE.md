@@ -4,8 +4,8 @@ Splatacama is a Next.js 15 app (App Router, React 19, Tailwind 4) that shows arc
 
 ## Commands
 
-- `pnpm dev`, `pnpm build`, `pnpm start`, `pnpm lint`. Use pnpm; the lockfile is pnpm v9 format.
-- `pnpm lint` runs ESLint and should report 0 problems. `pnpm build` type-checks and lints too, so a lint error fails the Vercel deploy. `tsconfig.json` still has `strict: false`, and there are no tests.
+- `pnpm dev`, `pnpm build`, `pnpm start`, `pnpm lint`, `pnpm test`, `pnpm typecheck`. Use pnpm; the lockfile is pnpm v9 format.
+- `pnpm lint` and `pnpm typecheck` should report 0 problems (TypeScript is strict). `pnpm build` type-checks and lints too, so either kind of error fails the Vercel deploy. `pnpm test` runs Vitest on the pure logic: asset URLs, pin grouping and fan-out, and the site list. Vercel doesn't run the tests, so run them before pushing.
 - After changing anything the map loads, test a **production** build (`pnpm build && pnpm start`), not only `pnpm dev`: the dev server doesn't minify, and one minifier bug has already broken production only (see the SPZ gotcha below).
 - Runtime needs `NEXT_PUBLIC_CESIUM_TOKEN` and `NEXT_PUBLIC_R2_PUBLIC_DOMAIN` in `.env.local`. Without the Cesium token the map shows an error instead of loading.
 - Vercel refuses to deploy Next.js versions with known critical advisories. Keep Next.js patched.
@@ -13,7 +13,7 @@ Splatacama is a Next.js 15 app (App Router, React 19, Tailwind 4) that shows arc
 ## Architecture in brief
 
 - **Data:** [src/data/landmarks.json](src/data/landmarks.json) is the only site list, imported statically by the map and by the scene page. The scene pages are prebuilt with `generateStaticParams`; unknown ids return a 404.
-- **Assets:** `.splat` files, preview JPEGs and pin thumbnails live in Cloudflare R2. `getBlobUrl()` in [src/utils/blobUtils.ts](src/utils/blobUtils.ts) turns a bucket path into `/api/image-proxy?url=https://<R2 domain>/<path>`. The proxy ([route.ts](src/app/api/image-proxy/route.ts)) streams the file and only accepts URLs that pass `isR2AssetUrl()`: https, with an exact host match. Both sides use that one function.
+- **Assets:** `.splat` files, preview JPEGs and pin thumbnails live in Cloudflare R2. `assetUrl()` in [src/utils/assetUrl.ts](src/utils/assetUrl.ts) turns a bucket path into `https://<R2 domain>/<path>`, and the browser downloads it directly. There's no server code; every page is static.
 - **Map:** `MapWithPins` loads `CesiumMapComponent` with `ssr: false`. `useCesiumViewer` builds the viewer with ArcGIS World Imagery and Cesium World Terrain selected in the constructor, one billboard entity per landmark, pin clustering, and click and hover handlers. The effect returns a teardown that destroys all of it. Pin images are canvases (a round crop of `thumbnailUrl`, falling back to `previewUrl`, then an orange circle) cached under `${id}_img` or `${id}_fallback`.
 - **Map to scene:** the "Ver Escena 3D" button does a full page load (`window.location.href`), not client-side routing.
 - **Splat viewer:** [src/components/GSplatViewer.tsx](src/components/GSplatViewer.tsx) creates the viewer in a container React doesn't manage, and disposes it with the library's `dispose()`. The scene is y-down (`cameraUp: [0, -1, 0]`), scaled 10×, and loaded with an explicit `format: SceneFormat.Splat`. WebXR is off, and GPU sorting and shared-memory workers are disabled. The library's own loading box is turned off (`addSplatScenes(scenes, false, onProgress)`); the component draws its own Spanish progress panel from `onProgress`. Camera limits keep visitors where the scene looks right: zoom range, height range and a small pan area, per site from the optional `view` field in `landmarks.json` (type `ViewLimits`), falling back to `DEFAULT_VIEW_LIMITS`. A site whose ground-level photos cover only part of the orbit can set `lowViewArc`: outside it the camera is drawn raised, and it comes back down when it orbits back. The limits were picked from renders at the extremes; re-check them when a site's `.splat` is replaced. The library's click-to-recentre and debug keys are turned off.
@@ -23,6 +23,7 @@ Splatacama is a Next.js 15 app (App Router, React 19, Tailwind 4) that shows arc
 - **Keep webpack, not Turbopack.** [next.config.js](next.config.js) aliases `cesium` to its package path (a pnpm workaround), defines `CESIUM_BASE_URL=/cesium` (the only place it's set), and copies Cesium's Workers, ThirdParty, Assets and Widgets folders into `public/cesium/` (gitignored). `next dev --turbopack` would skip all of that and break Cesium.
 - **SPZ loader alias.** Cesium 1.145 depends on `@spz-loader/core`, whose embedded WebAssembly is turned into invalid JavaScript by the production minifier, so Cesium fails to load. `next.config.js` aliases it to `false`. Keep that alias unless a later Cesium or Next.js fixes it; check with a production build.
 - **The map only redraws on request.** `VIEWER_CONFIG.requestRenderMode` is on. Camera moves and tile loads trigger redraws automatically, but entity changes don't. Any code that changes pins, clusters or other entities must call `viewer.scene.requestRender()`, or the change won't show until the camera moves.
+- **R2's CORS rule decides where assets load.** The browser fetches splats and pin photos from the bucket directly, and pin photos are drawn into WebGL, which needs CORS. The rule allows `https://splatacama.vercel.app` and `http://localhost:3000` only. On a Vercel preview deployment or another local port, scenes fail to load and pins stay orange until that origin is added in the Cloudflare dashboard.
 - **Cesium runs in the browser only.** Anything that touches `cesium` or `window` must stay behind the `ssr: false` dynamic import or inside `useEffect`.
 - **Pin heights are relative to the ground.** Pins, cluster markers and the explode dot use `HeightReference.RELATIVE_TO_GROUND`, and `height` in `landmarks.json` is meters above the ground. Terrain is exaggerated 1.5× (`SCENE_CONFIG.verticalExaggeration`); absolute heights put pins underground.
 - **Overlapping pins.** `pirca11` and `pirca12` are 30 m apart, so their pins stack at almost every zoom level. [src/utils/cesiumPinClusters.ts](src/utils/cesiumPinClusters.ts) groups pins closer than `MARKER_CONFIG.clusterDistance` on screen, every frame. Each group gets a cluster entity with id `cluster:<ids>`, drawn as a stack of its pins' images plus a count badge (`createClusterMarker`). Clicking one fans its pins out with `billboard.pixelOffset`. Use `pinClusters.getClusterMembers(entity)` to recognize a picked cluster.
@@ -32,7 +33,7 @@ Splatacama is a Next.js 15 app (App Router, React 19, Tailwind 4) that shows arc
 
 ## Known issues
 
-[AUDIT.md](AUDIT.md) tracks the audit from 2026-09-27. Most items are fixed. The ones still open need something outside the code: a CORS rule on the R2 bucket so the proxy can go (#3), uploading the pin thumbnails (#11), revoking an old Cesium ion token (#17), and tests plus strict TypeScript (#20).
+[AUDIT.md](AUDIT.md) tracks the audit from 2026-09-27. Everything in the code is fixed. Two items still need someone with the accounts: uploading the pin thumbnails to R2 (#11) and revoking an old Cesium ion token (#17).
 
 ## Conventions
 
