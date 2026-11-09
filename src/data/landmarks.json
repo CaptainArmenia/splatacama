@@ -36,7 +36,7 @@
     "thumbnailUrl": "pirca11_thumb.jpg",
     "view": {
       "maxDistance": 15,
-      "radius": 10.7
+      "radius": 7
     },
     "environment": {
       "terrainUrl": "pirca11_terrain.glb",
