@@ -15,6 +15,8 @@ import type { Earthquake } from '@/effects/earthquake';
 import { createNightSky, type NightSky } from '@/effects/nightSky';
 import { selectSplats, type ParsedSplat, type SiteAnalysis } from '@/effects/siteAnalysis';
 import type { LoadedEnvironment } from '@/utils/sceneEnvironment';
+import { createNpc, type Npc } from '@/effects/npc';
+import type { SceneNpc } from '@/types/cesium';
 import type { WindTurbines } from '@/utils/windTurbines';
 
 const NIGHT = {
@@ -60,6 +62,8 @@ export type SceneEffectsOptions = {
   background: THREE.Color;
   // Camera far plane, viewer units
   far: number;
+  // People who walk the site
+  npcs?: SceneNpc[];
 };
 
 export type SceneEffects = {
@@ -131,6 +135,18 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
   const flowers: DesertBloom = createDesertBloom(analysis, Math.min(options.splatRadius, analysis.half));
   metric.add(flowers.mesh);
 
+  // People walking the site, on the splat's ground; they appear when their model has loaded
+  const npcs: Npc[] = [];
+  let disposed = false;
+  for (const spec of options.npcs ?? []) {
+    createNpc(spec, metric, analysis, options.splatRadius, scene)
+      .then(npc => {
+        if (disposed) npc.dispose();
+        else npcs.push(npc);
+      })
+      .catch((e: unknown) => console.error(`Error loading ${spec.name}:`, e));
+  }
+
   // The terrain fades into the camanchaca with three.js fog. It's always set, far away when off, so turning it on
   // and off doesn't recompile the terrain's shaders.
   const unitsPerMetre = 1 / site.metersPerUnit;
@@ -158,6 +174,7 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     for (const mesh of environment?.terrain ?? []) (mesh.material as THREE.MeshBasicMaterial).color.copy(tint);
     if (environment?.sky) environment.sky.visible = !night && !fogOn;
     sky.group.visible = night;
+    for (const npc of npcs) npc.setNight(night);
 
     const fogColor = night ? FOG.nightColor : FOG.color;
     turbines?.setConditions(night, fogOn ? fogColor : night ? NIGHT.background : null);
@@ -235,6 +252,7 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
       flowers.update(seconds);
       camera.getWorldPosition(metricCamera);
       fog.update(seconds, metric.worldToLocal(metricCamera));
+      for (const npc of npcs) npc.update(deltaSeconds, metricCamera);
       turbines?.update(seconds);
 
       if (bloom !== bloomTarget) {
@@ -254,6 +272,8 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
       return shake;
     },
     dispose() {
+      disposed = true;
+      for (const npc of npcs) npc.dispose();
       sky.dispose();
       fog.dispose();
       flowers.dispose();

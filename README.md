@@ -105,6 +105,12 @@ The map currently has four sites, each a splat cropped to the site with terrain 
 
 To try scene files before uploading them, put them in `public/local-splats/` (gitignored) and point a site's URLs at `http://localhost:<port>/local-splats/<file>` without committing that. Files in the bucket only load on `http://localhost:3000` (see the CORS note below).
 
+### People
+
+A site can have people walking it: `npcs` in its `landmarks.json` entry, each with a `name`, a `model` (a `.glb` in the bucket) and the `walkSpeed` of the model's walk animation (metres a second at its own speed). [src/effects/npc.ts](src/effects/npc.ts) finds the ground she can walk (open, gently sloping, clear of the walls and bushes the site analysis found, on the splat's own ground) and has her wander it: to a spot, often by the walls, at her own unhurried pace, then standing a while to look around, mostly at the site or the visitor. The walk's playback follows her speed, so her feet don't slide.
+
+The characters are inspired by members of the Chango families of these sites, with their OK; pirca0 has Doña Estermila Álvarez Hidalgo, the families' matriarch, close to 90. They're built outside the repo, in `~/datasets/pircas-work/npc/` (its README): a MakeHuman body and clothes in Blender, and CMU motion capture moved onto it.
+
 ### Wind turbines
 
 [src/data/windTurbines.json](src/data/windTurbines.json) lists the real turbines around a site, and [src/utils/windTurbines.ts](src/utils/windTurbines.ts) draws them with turning rotors, each at its true compass bearing and scaled to look as big as the real one. pirca0 has all 295 within 20 km, in seven farms. The pipeline's `tools/turbines/osm_turbines.py` writes them from OpenStreetMap, with each farm's hub height and rotor diameter, which OpenStreetMap rarely has (the script lists them and their sources; one group of 24 near the site matches no farm found, and is drawn as the area's most common model). Each entry ends with a distance and a base elevation, which place it:
@@ -140,6 +146,7 @@ src/
     siteAnalysis.ts           reads ground, walls and bushes off the splats
     sceneEffects.ts           turns effects on and off across the splat, terrain, sky and turbines
     nightSky.ts, camanchaca.ts, desertBloom.ts, earthquake.ts
+    npc.ts                    people who walk a site: finds the walkable ground, wanders, walks and idles
   hooks/
     useCesiumViewer.ts        creates and destroys the Cesium viewer: imagery, terrain, pins, click/hover handlers
     useCesiumState.ts         preview URLs, camera position readout
@@ -169,6 +176,6 @@ next.config.js                webpack setup for Cesium
 - **Splat viewer.** Camera start position, up vector, scene scale and the default camera limits are set in [src/components/GSplatViewer.tsx](src/components/GSplatViewer.tsx). The camera can look from any angle, but it can't zoom out past the site's `maxDistance`, leave the circle of its `radius`, or go below a standing visitor's eye height.
 - **Effects.** Colours, fog distances, the flowers' opening time and the earthquake's strength are at the top of [src/effects/sceneEffects.ts](src/effects/sceneEffects.ts). The night sky uses today's date at the chosen hour, in Chile's summer time (UTC-3).
 - **VR.** Headsets (and computers with one attached) get a **Ver en VR** button. The left stick walks where you look, the right stick turns in 30° steps, and walking around the room works too. Visitors stay on the ground and can't walk through walls or bushes or past the well-captured part of the scene; all of that is read off the splats when the scene loads ([src/utils/walkArea.ts](src/utils/walkArea.ts), tuned in `WALK_CONFIG`). Speed, turning and headset rendering settings are in `VR_CONFIG` in [src/utils/vrWalk.ts](src/utils/vrWalk.ts). Phones don't get VR.
-- **Credits.** Scenes show credits their data's licences ask for: OpenStreetMap for the wind turbines, and Copernicus (elevation data and Sentinel-2 imagery) for the terrain. The sound is made in the browser, with no recordings; the star catalogue is d3-celestial's `stars.6.json`.
+- **Credits.** Scenes show credits their data's licences ask for: OpenStreetMap for the wind turbines, Copernicus (elevation data and Sentinel-2 imagery) for the terrain, and the CMU Graphics Lab Motion Capture Database (mocap.cs.cmu.edu, created with funding from NSF EIA-0196217) for the people's movement. The people's bodies and clothes are MakeHuman's, public domain (CC0). The sound is made in the browser, with no recordings; the star catalogue is d3-celestial's `stars.6.json`.
 - **Rendering.** The map only redraws when something changes, to save battery. Code that changes pins or other map entities must call `viewer.scene.requestRender()`.
 - **R2 bucket.** The browser loads assets straight from the bucket, so its CORS rule must allow `GET` from every origin the site runs on. It lists `https://splatacama.vercel.app` and `http://localhost:3000`. Vercel preview deployments and other local ports aren't on the list, so their pin photos fall back to orange markers and scenes fail to load until they're added.

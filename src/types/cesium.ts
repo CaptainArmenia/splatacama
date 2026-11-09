@@ -21,6 +21,21 @@ export interface MapLandmark {
   view?: SceneView;
   // Terrain and sky drawn around the splat, for a splat cropped to the site
   environment?: SceneEnvironment;
+  // People who walk the site (src/effects/npc.ts)
+  npcs?: SceneNpc[];
+}
+
+// A person who walks a site: a rigged glTF character with "walk" and "idle" animations, made by the pipeline's npc
+// tools (outside the repo). Inspired by real people of the Chango families of these sites, with their OK.
+export interface SceneNpc {
+  name: string;
+  // Path in the R2 bucket
+  model: string;
+  // How fast the walk animation moves at its own speed (metres a second): the app plays it faster or slower to keep
+  // her feet in step with how fast she goes
+  walkSpeed: number;
+  // How fast she walks (metres a second; npc.ts has a default)
+  pace?: number;
 }
 
 // Camera limits for one site, in viewer units (the site's main structure spans about 8). The camera may look from

@@ -64,6 +64,16 @@ describe('landmarks.json', () => {
       }
       if (environment.background !== undefined) expect(environment.background).toMatch(/^#[0-9a-f]{6}$/i);
     });
+
+  it.each(sites.filter(site => site.npcs).map(site => [site.id, site] as const))(
+    '%s has its people in the R2 bucket', (_, site) => {
+      for (const npc of site.npcs!) {
+        expect(isBucketPath(npc.model), npc.model).toBe(true);
+        expect(npc.model).toMatch(/\.glb$/);
+        expect(npc.walkSpeed).toBeGreaterThan(0.1);
+        expect(npc.walkSpeed).toBeLessThan(2);
+      }
+    });
 });
 
 describe('windTurbines.json', () => {

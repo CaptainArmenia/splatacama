@@ -115,7 +115,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
 
   // What the viewer is built from, as a string, so new but equal objects don't restart it
   const sceneKey = JSON.stringify({
-    url: site.gsplatUrl, view: site.view, environment: site.environment, turbines,
+    url: site.gsplatUrl, view: site.view, environment: site.environment, turbines, npcs: site.npcs,
     lat: site.lat, lng: site.lng, heading: site.heading, metersPerUnit: site.metersPerUnit,
   });
 
@@ -171,7 +171,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const { url, view, environment: env, turbines: turbineConfig, lat, lng, heading, metersPerUnit } = JSON.parse(sceneKey);
+    const { url, view, environment: env, turbines: turbineConfig, npcs, lat, lng, heading, metersPerUnit } = JSON.parse(sceneKey);
     const limits = { ...DEFAULT_VIEW, ...view };
     const background = new THREE.Color(env?.background ?? backgroundColor);
     const far = env?.far ?? DEFAULT_FAR;
@@ -363,7 +363,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
           world, scene, renderer, splat: mesh, file, analysis: siteAnalysis, environment, turbines: windTurbines,
           site: { lat, lng, heading, metersPerUnit },
           splatRadius: limits.radius * metersPerUnit,
-          background, far,
+          background, far, npcs,
         });
         if (cancelled) {
           effects.dispose();
@@ -492,8 +492,9 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       </div>
 
       <div className="absolute bottom-2 sm:bottom-4 right-2 sm:right-4 flex items-center gap-2">
-        {/* OpenStreetMap's and Copernicus' licences ask for these credits */}
-        {(turbines || site.environment) && (
+        {/* OpenStreetMap's and Copernicus' licences ask for these credits, and the CMU motion capture database asks
+            to be acknowledged */}
+        {(turbines || site.environment || site.npcs?.length) && (
           <span className="hidden sm:flex max-w-md flex-col items-end rounded bg-black/40 px-1.5 py-0.5 text-right text-[10px] leading-tight text-white/80">
             {turbines && (
               <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" className="hover:text-white">
@@ -503,6 +504,11 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
             {site.environment && (
               <span>Terreno: Copernicus DEM © DLR e.V., © Airbus; contiene datos Copernicus Sentinel modificados (2026)</span>
             )}
+            {site.npcs?.length ? (
+              <a href="http://mocap.cs.cmu.edu" target="_blank" rel="noopener noreferrer" className="hover:text-white">
+                Movimiento: CMU Graphics Lab Motion Capture Database
+              </a>
+            ) : null}
           </span>
         )}
         {vrError && (
