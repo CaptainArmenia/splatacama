@@ -13,6 +13,7 @@ import { analyzeSite, parseSplat, type SiteAnalysis } from '@/effects/siteAnalys
 import { createSceneEffects, type SceneEffects } from '@/effects/sceneEffects';
 import SceneEffectsPanel, { type QuakeState } from '@/components/SceneEffectsPanel';
 import SceneSound from '@/components/SceneSound';
+import { createSceneSound, type SceneSound as SceneSoundEngine } from '@/utils/sceneSound';
 
 type Props = {
   site: MapLandmark;
@@ -97,6 +98,19 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   const [fog, setFog] = useState(false);
   const [bloom, setBloom] = useState(false);
   const [quake, setQuake] = useState<QuakeState>('idle');
+
+  // The wind and the turbines' sound: one for the page, kept across scene changes
+  const [sound, setSound] = useState<SceneSoundEngine | null>(null);
+  const soundRef = useRef<SceneSoundEngine | null>(null);
+  useEffect(() => {
+    const engine = createSceneSound();
+    soundRef.current = engine;
+    setSound(engine);
+    return () => {
+      engine.dispose();
+      soundRef.current = null;
+    };
+  }, []);
 
   // What the viewer is built from, as a string, so new but equal objects don't restart it
   const sceneKey = JSON.stringify({
@@ -265,6 +279,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       else controls.update();
       const shake = effects?.update(time / 1000, deltaSeconds, camera);
       if (shake) camera.position.add(shake);
+      soundRef.current?.setListener(camera, world);
       renderer.render(scene, camera);
       if (shake) camera.position.sub(shake);
     });
@@ -337,6 +352,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
 
         if (turbineConfig) {
           windTurbines = addWindTurbines(world, turbineConfig, heading, environment ? { haze: background } : null);
+          soundRef.current?.setTurbines(windTurbines.voices, 1 / metersPerUnit);
         }
 
         effects = await createSceneEffects({
@@ -390,6 +406,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       controls.dispose();
       effects?.dispose();
       mesh?.dispose();
+      if (windTurbines) soundRef.current?.setTurbines(null, 1);
       windTurbines?.dispose();
       environment?.dispose();
       spark.dispose();
@@ -466,7 +483,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
             quake={quake} onStartQuake={startQuake} onResetQuake={resetQuake}
           />
         )}
-        <SceneSound />
+        <SceneSound sound={sound} />
       </div>
 
       <div className="absolute bottom-2 sm:bottom-4 right-2 sm:right-4 flex items-center gap-2">

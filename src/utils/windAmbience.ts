@@ -1,164 +1,140 @@
-// "wind open field" by Globofonia, Freesound #553733, CC0 (no attribution required). Recorded on open ground in
-// northern Mexico. Trimmed, high-passed at 180 Hz to remove the microphone's wind rumble, and normalized.
-export const WIND_SOUND_URL = '/sounds/wind-open-field.mp3';
+/**
+ * Wind over open ground, made in the browser from noise. (A recording did this before, but it was mostly the hum of
+ * a road: its sound sat in one band and hardly changed.) Three layers follow one gust strength that drifts and
+ * swells: the body of the wind, noise through a low-pass that opens in gusts; the hiss of the air in strong gusts; and
+ * at the strongest, a faint whistle, as of wind over rocks. Nothing repeats, and nothing is downloaded.
+ */
 
-const WIND_CONFIG = {
-  volume: 0.6,
-  // Each pass of the recording fades into the next over this long, so the loop point can't be heard
-  crossfadeSeconds: 4,
-  // Fade when the sound starts, stops, or is muted
-  fadeSeconds: 1.5,
-  // Gusts: the volume and brightness drift toward a new random target every few seconds, on top of the
-  // recording's own gusts, so the two-minute loop doesn't repeat exactly
-  gustGain: [0.55, 1] as const,
-  gustCutoffHz: [2500, 9000] as const,
-  gustIntervalSeconds: [3, 9] as const,
+const WIND = {
+  // Low-pass cutoff (Hz) and level of the body, from calm to the strongest gust
+  bodyCutoffHz: [320, 2200] as const,
+  bodyGain: [0.2, 1] as const,
+  // The air's hiss: noise above this (Hz), at this level in the strongest gusts
+  hissFromHz: 2000,
+  hissGain: 0.3,
+  // The whistle: two narrow bands that drift slowly within this range (Hz), heard above `whistleFrom` gust strength
+  whistleHz: [480, 900] as const,
+  whistleQ: 16,
+  whistleGain: 0.05,
+  whistleFrom: 0.6,
+  // Below this (Hz, cut steeply) is rumble, which read as traffic
+  highPassHz: 130,
+  // Gust strength (0 to 1): drifts around `mean`, pulled back toward it over `returnSeconds`, with gusts on top
+  mean: 0.4,
+  returnSeconds: 7,
+  drift: 0.22,
+  gustEverySeconds: [6, 16] as const,
+  gustRiseSeconds: [1.2, 3] as const,
+  gustFallSeconds: [4, 9] as const,
+  gustSize: [0.25, 0.55] as const,
+  // How often the parameters get a new target (seconds); they glide there
+  step: 0.25,
 };
 
 const between = ([low, high]: readonly [number, number]) => low + Math.random() * (high - low);
-
-// Equal-power fade curves, so two overlapping passes of the noise-like recording don't dip in loudness
-const fadeCurve = (fadingIn: boolean) => {
-  const curve = new Float32Array(64);
-  for (let i = 0; i < curve.length; i++) {
-    const t = i / (curve.length - 1);
-    curve[i] = fadingIn ? Math.sin((t * Math.PI) / 2) : Math.cos((t * Math.PI) / 2);
-  }
-  return curve;
+const smoothstep = (a: number, b: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
 };
 
-/**
- * Background wind for the splat scenes, played with the Web Audio API.
- *
- * Browsers only let a page start sound after the visitor interacts with it, so the file is downloaded right away
- * but nothing plays until `unlock()` is called from a click or key press. Sound also pauses while the tab is hidden.
- */
-export function createWindAmbience(url = WIND_SOUND_URL) {
-  let context: AudioContext | null = null;
-  let master: GainNode | null = null;
-  let gust: GainNode | null = null;
-  let filter: BiquadFilterNode | null = null;
-  let buffer: AudioBuffer | null = null;
-  let muted = false;
-  let unlocked = false;
-  let disposed = false;
-  let nextPassStart = 0;
-  let passTimer: ReturnType<typeof setTimeout> | undefined;
-  let gustTimer: ReturnType<typeof setTimeout> | undefined;
-  let suspendTimer: ReturnType<typeof setTimeout> | undefined;
-
-  // Download now, decode once there is an audio context (decoding needs one, and creating one before an
-  // interaction makes Chrome log a warning)
-  const download = fetch(url)
-    .then(response => {
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return response.arrayBuffer();
-    })
-    .catch(error => {
-      console.error('Error loading wind sound:', error);
-      return null;
-    });
-
-  const fadeIn = fadeCurve(true);
-  const fadeOut = fadeCurve(false);
-
-  // Schedules one pass of the recording, overlapping the end of the previous one, and comes back when it starts to
-  // schedule the following pass. Passes are always queued a full pass ahead, so a background tab's slowed-down
-  // timers can't leave a gap.
-  const schedulePass = () => {
-    if (!context || !buffer || !filter || disposed) return;
-    const fade = WIND_CONFIG.crossfadeSeconds;
-    const start = Math.max(nextPassStart, context.currentTime + 0.05);
-    const source = context.createBufferSource();
-    source.buffer = buffer;
-    const envelope = context.createGain();
-    envelope.gain.setValueCurveAtTime(fadeIn, start, fade);
-    envelope.gain.setValueCurveAtTime(fadeOut, start + buffer.duration - fade, fade);
-    source.connect(envelope).connect(filter);
-    source.start(start);
-    source.stop(start + buffer.duration);
-    source.onended = () => envelope.disconnect();
-    nextPassStart = start + buffer.duration - fade;
-    passTimer = setTimeout(schedulePass, Math.max(0, (start - context.currentTime) * 1000));
-  };
-
-  const scheduleGust = () => {
-    if (!context || !gust || !filter || disposed) return;
-    const now = context.currentTime;
-    const seconds = between(WIND_CONFIG.gustIntervalSeconds);
-    // Reach about 95% of the way to the new values by the next change
-    gust.gain.setTargetAtTime(between(WIND_CONFIG.gustGain), now, seconds / 3);
-    filter.frequency.setTargetAtTime(between(WIND_CONFIG.gustCutoffHz), now, seconds / 3);
-    gustTimer = setTimeout(scheduleGust, seconds * 1000);
-  };
-
-  // Fades the master volume to match `muted`. A muted context is suspended after the fade, so it uses no CPU.
-  const applyMuted = () => {
-    if (!context || !master) return;
-    const now = context.currentTime;
-    const target = muted ? 0 : WIND_CONFIG.volume;
-    clearTimeout(suspendTimer);
-    master.gain.cancelScheduledValues(now);
-    master.gain.setValueAtTime(master.gain.value, now);
-    master.gain.linearRampToValueAtTime(target, now + WIND_CONFIG.fadeSeconds);
-    if (muted) {
-      suspendTimer = setTimeout(() => context?.suspend(), WIND_CONFIG.fadeSeconds * 1000 + 100);
-    } else if (!document.hidden) {
-      context.resume();
+/** Stereo pink noise (Paul Kellet's filter), each channel its own, so the wind is wide */
+export function pinkNoise(context: BaseAudioContext, seconds: number) {
+  const buffer = context.createBuffer(2, Math.round(context.sampleRate * seconds), context.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const data = buffer.getChannelData(ch);
+    let b0 = 0, b1 = 0, b2 = 0;
+    for (let i = 0; i < data.length; i++) {
+      const white = Math.random() * 2 - 1;
+      b0 = 0.99765 * b0 + white * 0.099046;
+      b1 = 0.963 * b1 + white * 0.2965164;
+      b2 = 0.57 * b2 + white * 1.0526913;
+      data[i] = (b0 + b1 + b2 + white * 0.1848) * 0.11;
     }
-  };
+  }
+  return buffer;
+}
 
-  const start = async () => {
-    context = new AudioContext();
-    master = context.createGain();
-    master.gain.value = 0;
-    gust = context.createGain();
-    filter = context.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = WIND_CONFIG.gustCutoffHz[1];
-    filter.connect(gust).connect(master).connect(context.destination);
+export type WindVoice = {
+  /** Plans the gusts up to `until` (the context's time, seconds); call ahead of time, as often as convenient */
+  schedule: (until: number) => void;
+  dispose: () => void;
+};
 
-    const data = await download;
-    if (!data || disposed) return;
-    try {
-      buffer = await context.decodeAudioData(data);
-    } catch (error) {
-      // Leaving the scene while decoding closes the context, which fails the decode too
-      if (!disposed) console.error('Error decoding wind sound:', error);
-      return;
-    }
-    if (disposed) return;
-    schedulePass();
-    scheduleGust();
-    applyMuted();
-  };
+/** The wind, into `output`. `noise` is a pinkNoise() buffer (a dozen seconds; the gusts hide that it loops). */
+export function createWind(context: BaseAudioContext, output: AudioNode, noise: AudioBuffer): WindVoice {
+  const source = context.createBufferSource();
+  source.buffer = noise;
+  source.loop = true;
+  const highPass = context.createBiquadFilter();
+  highPass.type = 'highpass';
+  highPass.frequency.value = WIND.highPassHz;
+  const highPass2 = context.createBiquadFilter();
+  highPass2.type = 'highpass';
+  highPass2.frequency.value = WIND.highPassHz;
+  source.connect(highPass2).connect(highPass);
 
-  const onVisibilityChange = () => {
-    if (!context) return;
-    if (document.hidden) context.suspend();
-    else if (!muted) context.resume();
-  };
-  document.addEventListener('visibilitychange', onVisibilityChange);
+  const body = context.createBiquadFilter();
+  body.type = 'lowpass';
+  body.Q.value = 0.5;
+  const bodyGain = context.createGain();
+  highPass.connect(body).connect(bodyGain).connect(output);
+
+  const hiss = context.createBiquadFilter();
+  hiss.type = 'highpass';
+  hiss.frequency.value = WIND.hissFromHz;
+  const hissGain = context.createGain();
+  hissGain.gain.value = 0;
+  highPass.connect(hiss).connect(hissGain).connect(output);
+
+  const whistles = [1, 1.6].map(ratio => {
+    const band = context.createBiquadFilter();
+    band.type = 'bandpass';
+    band.Q.value = WIND.whistleQ;
+    const gain = context.createGain();
+    gain.gain.value = 0;
+    highPass.connect(band).connect(gain).connect(output);
+    return { band, gain, ratio };
+  });
+
+  let gust = WIND.mean;
+  let planned = context.currentTime;
+  let nextGust = planned + between(WIND.gustEverySeconds);
+  let bump = { start: -1, rise: 1, fall: 1, size: 0 };
+  let whistlePitch = 0.5;
+  source.start();
 
   return {
-    /** Call from a click or key press handler: the first call starts the sound (unless muted) */
-    unlock() {
-      if (unlocked || disposed) return;
-      unlocked = true;
-      start();
-    },
-    setMuted(value: boolean) {
-      muted = value;
-      applyMuted();
+    schedule(until) {
+      for (; planned < until; planned += WIND.step) {
+        const t = planned;
+        // Drift: back toward the mean, and a random nudge
+        gust += ((WIND.mean - gust) * WIND.step) / WIND.returnSeconds + WIND.drift * Math.sqrt(WIND.step) * (Math.random() * 2 - 1);
+        if (t >= nextGust) {
+          bump = { start: t, rise: between(WIND.gustRiseSeconds), fall: between(WIND.gustFallSeconds), size: between(WIND.gustSize) };
+          nextGust = t + between(WIND.gustEverySeconds);
+        }
+        const since = t - bump.start;
+        const swell = bump.start < 0 ? 0 : since < bump.rise ? smoothstep(0, bump.rise, since) : Math.exp(-(since - bump.rise) / bump.fall);
+        gust = Math.min(1, Math.max(0, gust));
+        const g = Math.min(1, gust + bump.size * swell);
+        whistlePitch = Math.min(1, Math.max(0, whistlePitch + 0.08 * (Math.random() * 2 - 1)));
+
+        const glide = WIND.step * 1.5;
+        const [lowHz, highHz] = WIND.bodyCutoffHz;
+        body.frequency.setTargetAtTime(lowHz * (highHz / lowHz) ** g, t, glide);
+        bodyGain.gain.setTargetAtTime(WIND.bodyGain[0] + (WIND.bodyGain[1] - WIND.bodyGain[0]) * g, t, glide);
+        hissGain.gain.setTargetAtTime(WIND.hissGain * g ** 1.5, t, glide);
+        const whistle = WIND.whistleGain * smoothstep(WIND.whistleFrom, 1, g);
+        const pitch = WIND.whistleHz[0] + (WIND.whistleHz[1] - WIND.whistleHz[0]) * (0.7 * whistlePitch + 0.3 * g);
+        for (const { band, gain, ratio } of whistles) {
+          band.frequency.setTargetAtTime(pitch * ratio, t, glide * 2);
+          gain.gain.setTargetAtTime(whistle / ratio, t, glide);
+        }
+      }
     },
     dispose() {
-      disposed = true;
-      clearTimeout(passTimer);
-      clearTimeout(gustTimer);
-      clearTimeout(suspendTimer);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-      context?.close();
-      context = null;
+      source.stop();
+      source.disconnect();
     },
   };
 }

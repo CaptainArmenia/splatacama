@@ -299,8 +299,13 @@ export type WindTurbines = {
   /** At night the turbines go dark and their lights flash. `plainSky` is the colour behind them when the scene's sky
    * is hidden (at night and in fog), or null for the splat's own (SceneTurbines.sky). */
   setConditions: (night: boolean, plainSky: THREE.Color | null) => void;
+  /** Where each turbine's sound comes from (its hub, in `parent`'s frame), how far away the real one is, and how often
+   * a blade passes the tower; empty when the rotors are still (reduced motion) */
+  voices: TurbineVoice[];
   dispose: () => void;
 };
+
+export type TurbineVoice = { position: THREE.Vector3; metres: number; bladePassHz: number };
 
 /**
  * Draws a site's real wind turbines (positions from OpenStreetMap) with turning rotors, as two instanced meshes. Each
@@ -429,7 +434,15 @@ export function addWindTurbines(
   const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let night = false;
 
+  const voices = still ? [] : placed.map(({ base, scale, metres }, index) => ({
+    position: base.clone().setY(base.y - (MODEL.hubHeight + MODEL.hubAbove) * scale),
+    metres,
+    // Three blades a turn
+    bladePassHz: (3 * Math.abs(speeds[index])) / (2 * Math.PI),
+  }));
+
   return {
+    voices,
     update(seconds) {
       if (!still) turn(seconds);
       if (night) lights.visible = still || seconds % LIGHT_PERIOD_SECONDS < LIGHT_PERIOD_SECONDS / 2;

@@ -1,8 +1,8 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
-import { createWindAmbience } from '@/utils/windAmbience';
+import { useEffect, useState } from 'react';
+import type { SceneSound as SceneSoundEngine } from '@/utils/sceneSound';
 
-// Remembered in this browser, so a visitor who muted the wind doesn't hear it again on the next scene
+// Remembered in this browser, so a visitor who muted the sound doesn't hear it again on the next scene
 const MUTED_STORAGE_KEY = 'splatacama.soundMuted';
 
 const readStoredMuted = () => {
@@ -13,34 +13,30 @@ const readStoredMuted = () => {
   }
 };
 
-/** Wind in the background of a scene, with a button to mute it */
-export default function SceneSound() {
+/** The button that mutes a scene's sound (sceneSound.ts), which the first click or key press anywhere starts */
+export default function SceneSound({ sound }: { sound: SceneSoundEngine | null }) {
   const [muted, setMuted] = useState(false);
-  const ambienceRef = useRef<ReturnType<typeof createWindAmbience> | null>(null);
 
   useEffect(() => {
-    const ambience = createWindAmbience();
-    ambienceRef.current = ambience;
+    if (!sound) return;
     const storedMuted = readStoredMuted();
     setMuted(storedMuted);
-    ambience.setMuted(storedMuted);
+    sound.setMuted(storedMuted);
 
     // Browsers block sound until the visitor interacts, so the first click or key press anywhere starts it
-    const unlock = () => ambience.unlock();
+    const unlock = () => sound.unlock();
     window.addEventListener('pointerdown', unlock, { capture: true, once: true });
     window.addEventListener('keydown', unlock, { capture: true, once: true });
     return () => {
       window.removeEventListener('pointerdown', unlock, { capture: true });
       window.removeEventListener('keydown', unlock, { capture: true });
-      ambience.dispose();
-      ambienceRef.current = null;
     };
-  }, []);
+  }, [sound]);
 
   const toggleMuted = () => {
     const next = !muted;
     setMuted(next);
-    ambienceRef.current?.setMuted(next);
+    sound?.setMuted(next);
     try {
       localStorage.setItem(MUTED_STORAGE_KEY, next ? '1' : '0');
     } catch {

@@ -149,13 +149,14 @@ src/
     cesiumPinClusters.ts      merges overlapping pins into clusters and fans them out on click
     sceneEnvironment.ts       terrain and sky around a cropped splat, with the terrain's detail texture
     windTurbines.ts           real wind turbines on a scene's terrain or backdrop, with turning rotors
-    windAmbience.ts           plays the wind sound (Web Audio)
+    sceneSound.ts             the scene's sound (Web Audio): mute, start on the first click, listener follows the camera
+    windAmbience.ts           wind made from noise, in gusts (no recording)
+    turbineSound.ts           the nearest wind turbines' whine and blade swish, each from where it stands
     walkArea.ts               where a visitor can walk in VR: ground height, walls and bushes, edge of the detailed area
     vrWalk.ts                 the VR session: walking and turning with the controllers, kept inside the walk area
   constants/cesiumConfig.ts   camera, pin, viewer and scene settings
   data/landmarks.json         site list
   data/windTurbines.json      wind turbines near the sites, by site id
-public/sounds/                the wind recording
 public/data/stars.json        the star catalogue for the night sky
 next.config.js                webpack setup for Cesium
 ```
@@ -166,6 +167,6 @@ next.config.js                webpack setup for Cesium
 - **Splat viewer.** Camera start position, up vector, scene scale and the default camera limits are set in [src/components/GSplatViewer.tsx](src/components/GSplatViewer.tsx). The camera can look from any angle, but it can't zoom out past the site's `maxDistance`, leave the circle of its `radius`, or go below a standing visitor's eye height.
 - **Effects.** Colours, fog distances, the flowers' opening time and the earthquake's strength are at the top of [src/effects/sceneEffects.ts](src/effects/sceneEffects.ts). The night sky uses today's date at the chosen hour, in Chile's summer time (UTC-3).
 - **VR.** Headsets (and computers with one attached) get a **Ver en VR** button. The left stick walks where you look, the right stick turns in 30° steps, and walking around the room works too. Visitors stay on the ground and can't walk through walls or bushes or past the well-captured part of the scene; all of that is read off the splats when the scene loads ([src/utils/walkArea.ts](src/utils/walkArea.ts), tuned in `WALK_CONFIG`). Speed, turning and headset rendering settings are in `VR_CONFIG` in [src/utils/vrWalk.ts](src/utils/vrWalk.ts). Phones don't get VR.
-- **Credits.** Scenes show credits their data's licences ask for: OpenStreetMap for the wind turbines, and Copernicus (elevation data and Sentinel-2 imagery) for the terrain. The wind recording is CC0 (Freesound #553733); the star catalogue is d3-celestial's `stars.6.json`.
+- **Credits.** Scenes show credits their data's licences ask for: OpenStreetMap for the wind turbines, and Copernicus (elevation data and Sentinel-2 imagery) for the terrain. The sound is made in the browser, with no recordings; the star catalogue is d3-celestial's `stars.6.json`.
 - **Rendering.** The map only redraws when something changes, to save battery. Code that changes pins or other map entities must call `viewer.scene.requestRender()`.
 - **R2 bucket.** The browser loads assets straight from the bucket, so its CORS rule must allow `GET` from every origin the site runs on. It lists `https://splatacama.vercel.app` and `http://localhost:3000`. Vercel preview deployments and other local ports aren't on the list, so their pin photos fall back to orange markers and scenes fail to load until they're added.
