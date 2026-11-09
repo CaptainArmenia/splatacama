@@ -107,7 +107,7 @@ To try scene files before uploading them, put them in `public/local-splats/` (gi
 
 ### People
 
-A site can have people walking it: `npcs` in its `landmarks.json` entry, each with a `name`, a `model` (a `.glb` in the bucket) and the `walkSpeed` of the model's walk animation (metres a second at its own speed). [src/effects/npc.ts](src/effects/npc.ts) finds the ground she can walk (open, gently sloping, clear of the walls and bushes the site analysis found, on the splat's own ground) and has her wander it: to a spot, often by the walls, at her own unhurried pace, then standing a while to look around, mostly at the site or the visitor. The walk's playback follows her speed, so her feet don't slide.
+A site can have people walking it: `npcs` in its `landmarks.json` entry, each with a `name`, a `model` (a `.glb` in the bucket) and the `walkSpeed` of the model's walk animation (metres a second at its own speed). [src/effects/npc.ts](src/effects/npc.ts) finds the ground she can walk (open, gently sloping, clear of the walls and bushes the site analysis found, on the splat's own ground) and has her wander it: to a spot, often by the walls, at her own unhurried pace, then standing a while to look around, mostly at the site or the visitor. When the visitor is near and in front of her (within 5 m), she turns her head to look at them, walking or standing. The walk's playback follows her speed, so her feet don't slide.
 
 The characters are inspired by members of the Chango families of these sites, with their OK; pirca0 has Doña Estermila Álvarez Hidalgo, the families' matriarch, close to 90. They're built outside the repo, in `~/datasets/pircas-work/npc/` (its README): a MakeHuman body and clothes in Blender, and CMU motion capture moved onto it.
 

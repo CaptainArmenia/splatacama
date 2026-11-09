@@ -1,7 +1,7 @@
 /**
  * People who walk a site: a rigged glTF character with a walk and an idle (made outside the repo by the pipeline's
  * npc tools: a MakeHuman body, CMU motion capture), wandering between spots on open ground at an unhurried pace and
- * pausing to look around. Built in the effects' metric frame (metres, y up, the site at the origin; see
+ * pausing to look around. When the visitor comes near, in front of her, she turns her head to look at them. Built in the effects' metric frame (metres, y up, the site at the origin; see
  * siteAnalysis.ts), whose ground heights, walls and bushes tell where she can walk.
  *
  * She's an ordinary mesh, so the splats in front of her (walls, bushes) cover her as they cover the terrain.
@@ -34,6 +34,13 @@ const NPC = {
   personalSpace: 0.9,
   // Crossfade between walking and standing (seconds)
   blend: 0.7,
+  // She looks at the visitor within this distance (metres) and this far round from her front (degrees), turning her
+  // head and neck at most lookYaw sideways and lookPitch up or down, and easing in and out at lookRate (per second)
+  lookDistance: 5,
+  lookAround: 110,
+  lookYaw: 70,
+  lookPitch: 25,
+  lookRate: 1.5,
 };
 
 const between = ([a, b]: readonly [number, number]) => a + Math.random() * (b - a);
@@ -354,6 +361,61 @@ export async function createNpc(npc: SceneNpc, parent: THREE.Object3D, analysis:
   const angleTo = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
   const forward = new THREE.Vector2();
 
+  // Where her face points in the head bone's own axes, from the rest pose (the body faces +z)
+  const neck = body.getObjectByName('Neck1');
+  const head = body.getObjectByName('Head');
+  const face = new THREE.Vector3(0, 0, 1);
+  if (head) {
+    body.updateMatrixWorld(true);
+    const inBody = body.getWorldQuaternion(new THREE.Quaternion()).invert()
+      .multiply(head.getWorldQuaternion(new THREE.Quaternion()));
+    face.applyQuaternion(inBody.invert());
+  }
+  let look = 0;
+  const headAt = new THREE.Vector3();
+  const want = new THREE.Vector3();
+  const now = new THREE.Vector3();
+  const final = new THREE.Vector3();
+  const qa = new THREE.Quaternion();
+  const qb = new THREE.Quaternion();
+  const qc = new THREE.Quaternion();
+  const turn = new THREE.Quaternion();
+  /** Turns `bone` by `delta`, a rotation in world axes, on top of the pose the animation gave it */
+  const rotateInWorld = (bone: THREE.Object3D, delta: THREE.Quaternion) => {
+    bone.getWorldQuaternion(qa);
+    bone.parent!.getWorldQuaternion(qb);
+    bone.quaternion.copy(qb.invert().multiply(delta).multiply(qa));
+    bone.updateWorldMatrix(false, true);
+  };
+  /** After the animation: her head turned toward the visitor's eye (`camera`, metric frame) when they're near */
+  const lookAtVisitor = (dt: number, camera: THREE.Vector3) => {
+    if (!head || !neck) return;
+    parent.worldToLocal(head.getWorldPosition(headAt));
+    want.copy(camera).sub(headAt);
+    // In her body's axes (turned by her heading): how far round and how far up the visitor is
+    const c = Math.cos(heading);
+    const s = Math.sin(heading);
+    const x = want.x * c - want.z * s;
+    const z = want.x * s + want.z * c;
+    const yaw = Math.atan2(x, z);
+    const pitch = Math.atan2(want.y, Math.hypot(x, z));
+    const near = want.length() < NPC.lookDistance && Math.abs(yaw) < THREE.MathUtils.degToRad(NPC.lookAround);
+    look += ((near ? 1 : 0) - look) * Math.min(1, dt * NPC.lookRate);
+    if (look < 0.01) return;
+    const y = THREE.MathUtils.clamp(yaw, -THREE.MathUtils.degToRad(NPC.lookYaw), THREE.MathUtils.degToRad(NPC.lookYaw));
+    const p = THREE.MathUtils.clamp(pitch, -THREE.MathUtils.degToRad(NPC.lookPitch), THREE.MathUtils.degToRad(NPC.lookPitch));
+    const sx = Math.sin(y) * Math.cos(p);
+    const sz = Math.cos(y) * Math.cos(p);
+    want.set(sx * c + sz * s, Math.sin(p), -sx * s + sz * c).transformDirection(parent.matrixWorld);
+    now.copy(face).applyQuaternion(head.getWorldQuaternion(qa));
+    turn.setFromUnitVectors(now, want);
+    final.copy(now).applyQuaternion(qc.identity().slerp(turn, look));
+    // The neck takes part of the turn, the head the rest
+    rotateInWorld(neck, qc.identity().slerp(turn, look * 0.4));
+    now.copy(face).applyQuaternion(head.getWorldQuaternion(qa));
+    rotateInWorld(head, qc.setFromUnitVectors(now, final));
+  };
+
   return {
     update(dt, camera) {
       if (!openCells.length) return;
@@ -419,6 +481,7 @@ export async function createNpc(npc: SceneNpc, parent: THREE.Object3D, analysis:
       idle.setEffectiveWeight(1 - walkWeight);
       walk.timeScale = stepping && speed < 0.05 ? 0.55 : Math.max(speed / npc.walkSpeed, 0.3);
       mixer.update(dt);
+      lookAtVisitor(dt, camera);
     },
     setNight(night) {
       for (const light of lights) light.intensity = night ? 0.03 : light instanceof THREE.DirectionalLight ? 3 : 2;

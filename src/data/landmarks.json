@@ -22,7 +22,7 @@
       "far": 20000
     },
     "npcs": [
-      { "name": "Doña Estermila", "model": "npc_estermila.glb", "walkSpeed": 0.242 }
+      { "name": "Doña Estermila", "model": "npc_estermila.glb", "walkSpeed": 0.289 }
     ]
   },
   {
