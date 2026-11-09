@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import landmarks from './landmarks.json';
-import type { MapLandmark } from '@/types/cesium';
+import windTurbines from './windTurbines.json';
+import type { MapLandmark, SceneTurbines } from '@/types/cesium';
 
 // Checks the site list, the one data file the map and the scene pages are built from
 const sites: MapLandmark[] = landmarks;
@@ -40,6 +41,48 @@ describe('landmarks.json', () => {
       if (image === undefined) continue;
       expect(isBucketPath(image), image).toBe(true);
       expect(image).toMatch(/\.(jpe?g|png|webp)$/i);
+    }
+  });
+
+  it.each(sites.map(site => [site.id, site] as const))('%s has its size, north and camera limits', (_, site) => {
+    // The pipeline scales each site's main structure to 8 viewer units; pircas are a few metres to a few dozen across
+    expect(site.metersPerUnit).toBeGreaterThan(0.2);
+    expect(site.metersPerUnit).toBeLessThan(10);
+    expect(Math.abs(site.heading)).toBeLessThanOrEqual(360);
+    if (site.view?.maxDistance !== undefined) expect(site.view.maxDistance).toBeGreaterThan(1);
+    if (site.view?.radius !== undefined) expect(site.view.radius).toBeGreaterThan(4);
+  });
+
+  it.each(sites.filter(site => site.environment).map(site => [site.id, site] as const))(
+    '%s has its terrain and sky in the R2 bucket', (_, site) => {
+      const environment = site.environment!;
+      expect(isBucketPath(environment.terrainUrl), environment.terrainUrl).toBe(true);
+      expect(environment.terrainUrl).toMatch(/\.glb$/);
+      if (environment.skyUrl !== undefined) {
+        expect(isBucketPath(environment.skyUrl), environment.skyUrl).toBe(true);
+        expect(environment.skyUrl).toMatch(/\.(jpe?g|png|webp)$/i);
+      }
+      if (environment.background !== undefined) expect(environment.background).toMatch(/^#[0-9a-f]{6}$/i);
+    });
+});
+
+describe('windTurbines.json', () => {
+  const bySite = windTurbines as Record<string, SceneTurbines>;
+
+  it('only names sites that exist', () => {
+    const ids = new Set(sites.map(site => site.id));
+    for (const id of Object.keys(bySite)) expect(ids.has(id), id).toBe(true);
+  });
+
+  it.each(Object.entries(bySite))('%s has turbines near the site, with sizes', (id, config) => {
+    const site = sites.find(s => s.id === id)!;
+    expect(config.turbines.length).toBeGreaterThan(0);
+    for (const [lat, lng, hub, rotor] of config.turbines) {
+      // Within about 30 km
+      expect(Math.abs(lat - site.lat)).toBeLessThan(0.3);
+      expect(Math.abs(lng - site.lng)).toBeLessThan(0.3);
+      expect(hub).toBeGreaterThan(40);
+      expect(rotor).toBeGreaterThan(40);
     }
   });
 });

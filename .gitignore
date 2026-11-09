@@ -41,3 +41,5 @@ yarn-error.log*
 next-env.d.ts
 public/cesium
 .vscode/
+# Splat scenes and terrain served locally for testing (see README)
+/public/local-splats/

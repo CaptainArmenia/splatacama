@@ -3,8 +3,9 @@ import { notFound } from 'next/navigation';
 import GSplatViewer from "@/components/GSplatViewer";
 import Link from "next/link";
 import landmarks from '@/data/landmarks.json';
-import type { MapLandmark } from '@/types/cesium';
+import type { MapLandmark, SceneTurbines } from '@/types/cesium';
 import ToggleableInfoPanel from '@/components/ToggleableInfoPanel';
+import windTurbines from '@/data/windTurbines.json';
 
 // The site list is static, so every scene page can be built ahead of time
 export function generateStaticParams() {
@@ -14,6 +15,7 @@ export function generateStaticParams() {
 export default async function ScenePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const landmark: MapLandmark | undefined = landmarks.find((l) => l.id === id);
+  const turbines: SceneTurbines | undefined = (windTurbines as Record<string, SceneTurbines>)[id];
 
   if (!landmark) {
     notFound();
@@ -21,7 +23,7 @@ export default async function ScenePage({ params }: { params: Promise<{ id: stri
 
   return (
     <main className="h-[100dvh] w-screen relative overflow-hidden">
-      <GSplatViewer url={landmark.gsplatUrl} viewLimits={landmark.view} />
+      <GSplatViewer site={landmark} turbines={turbines} />
 
       {/* Back to map button - moved to top-left corner */}
       <div className="absolute top-4 left-4 z-50">

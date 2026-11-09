@@ -1,0 +1,267 @@
+/**
+ * The scene effects the viewer's "Efectos" panel turns on: night (the real night sky over the site), the camanchaca
+ * (coastal fog), the desierto florido (flowering desert) and an earthquake. Each changes several parts of the scene
+ * at once: the splat, the terrain and sky around it, the wind turbines and the page background.
+ *
+ * The effects are built in a "metric" frame: metres, y up, the site at the origin (see siteAnalysis.ts). A group
+ * inside the scene's world group turns and scales them into the viewer's frame (y down, viewer units), so in VR,
+ * where the world is shown upright at real size, they come along.
+ */
+import * as THREE from 'three';
+import { dyno, SplatFileType, SplatMesh } from '@sparkjsdev/spark';
+import { createCamanchaca, type Camanchaca } from '@/effects/camanchaca';
+import { createDesertBloom, type DesertBloom } from '@/effects/desertBloom';
+import type { Earthquake } from '@/effects/earthquake';
+import { createNightSky, type NightSky } from '@/effects/nightSky';
+import { selectSplats, type ParsedSplat, type SiteAnalysis } from '@/effects/siteAnalysis';
+import type { LoadedEnvironment } from '@/utils/sceneEnvironment';
+import type { WindTurbines } from '@/utils/windTurbines';
+
+const NIGHT = {
+  // Everything lit by daylight is multiplied by this: moonless, a little blue
+  tint: new THREE.Color(0.2, 0.24, 0.36),
+  fogTint: new THREE.Color(0.16, 0.18, 0.26),
+  background: new THREE.Color('#03050b'),
+};
+
+const FOG = {
+  color: new THREE.Color('#cfd4d8'),
+  nightColor: new THREE.Color('#14171d'),
+  // Where the terrain starts to fade into the fog and where it's gone (metres)
+  near: 15,
+  far: 300,
+};
+
+// The flowers open over this long when the desierto florido is turned on, and close faster
+const BLOOM_SECONDS = 5;
+const UNBLOOM_SECONDS = 2;
+
+// Peak ground acceleration, in g: a strong earthquake close to its epicentre
+const QUAKE_STRENGTH = 0.8;
+
+// Chile's coast keeps UTC-3 in the southern summer (and UTC-4 in winter; the night sky uses -3 all year)
+const UTC_OFFSET_HOURS = -3;
+
+export type SceneEffectsOptions = {
+  // The scene in the viewer's frame; VR turns and scales it
+  world: THREE.Group;
+  scene: THREE.Scene;
+  renderer: THREE.WebGLRenderer;
+  // The scene's main splat mesh (in the .splat file's frame, inside `world`), and the file it came from
+  splat: SplatMesh;
+  file: ParsedSplat;
+  site: { lat: number; lng: number; heading: number; metersPerUnit: number };
+  analysis: SiteAnalysis;
+  // Metres from the site centre where the splat starts to fade (its crop), or the edge of its detail
+  splatRadius: number;
+  environment: LoadedEnvironment | null;
+  turbines: WindTurbines | null;
+  // The page background by day
+  background: THREE.Color;
+  // Camera far plane, viewer units
+  far: number;
+};
+
+export type SceneEffects = {
+  readonly splat: SplatMesh;
+  setNight: (on: boolean, hour: number) => void;
+  setFog: (on: boolean) => void;
+  setBloom: (on: boolean) => void;
+  /** Cuts the walls into stones the first time (seconds); false when the site has none */
+  startQuake: () => Promise<boolean>;
+  resetQuake: () => void;
+  /** Call every frame before rendering, with the camera; returns the camera shake to add (world frame) */
+  update: (seconds: number, deltaSeconds: number, camera: THREE.Camera) => THREE.Vector3;
+  dispose: () => void;
+};
+
+// Hides the splats far from the site (by `hide`, 0 to 1), in the .splat file's frame: at night and in fog they
+// would show daytime sky. A cropped splat with terrain only keeps a dome of sky splats far out (crop_center.py); a
+// full splat has its sky on a shell a few dozen metres out, above the horizon, and smears beyond.
+function farSplatModifier(hide: any, metersPerFileUnit: number, cropped: boolean) {
+  return dyno.dynoBlock({ gsplat: dyno.Gsplat }, { gsplat: dyno.Gsplat }, ({ gsplat }: any) => {
+    const d = new dyno.Dyno({
+      inTypes: { gsplat: dyno.Gsplat, hide: 'float' },
+      outTypes: { gsplat: dyno.Gsplat },
+      statements: ({ inputs, outputs }: any) => dyno.unindentLines(`
+        ${outputs.gsplat} = ${inputs.gsplat};
+        vec3 c = ${inputs.gsplat}.center * ${metersPerFileUnit.toFixed(4)};
+        float far = length(c.xz);
+        ${cropped
+          ? 'float sky = smoothstep(300.0, 600.0, far);'
+          : 'float sky = max(smoothstep(20.0, 35.0, far) * smoothstep(0.0, 0.04, -c.y / max(far, 1.0)), smoothstep(120.0, 200.0, far));'}
+        ${outputs.gsplat}.rgba.a *= 1.0 - ${inputs.hide} * sky;
+      `),
+    });
+    return { gsplat: d.apply({ gsplat, hide }).gsplat };
+  });
+}
+
+export async function createSceneEffects(options: SceneEffectsOptions): Promise<SceneEffects> {
+  const { world, scene, renderer, file, site, analysis, environment, turbines } = options;
+  let splat = options.splat;
+
+  const metric = new THREE.Group();
+  metric.name = 'scene-effects';
+  metric.quaternion.set(1, 0, 0, 0); // 180 degrees about x: y up becomes y down
+  metric.scale.setScalar(1 / site.metersPerUnit);
+  world.add(metric);
+
+  // Compass directions in the metric frame (see MapLandmark.heading for the viewer's)
+  const h = THREE.MathUtils.degToRad(site.heading);
+  const compass = {
+    east: new THREE.Vector3(Math.cos(h), 0, Math.sin(h)),
+    north: new THREE.Vector3(Math.sin(h), 0, -Math.cos(h)),
+  };
+
+  // Splat meshes from the site's .splat file (the main one, and the walls' while the earthquake has them), which
+  // night recolours and night and fog thin out far away
+  const hideFar = dyno.dynoFloat(0);
+  const prepareSplat = (mesh: SplatMesh) => {
+    mesh.objectModifier = farSplatModifier(hideFar, file.scale, !!environment);
+    mesh.updateGenerator();
+  };
+  prepareSplat(splat);
+
+  // Stars past the terrain and inside the far plane
+  const sky: NightSky = await createNightSky(site, compass, options.far * 0.9 * site.metersPerUnit);
+  metric.add(sky.group);
+  const fog: Camanchaca = createCamanchaca(analysis.groundAt(0, 0), compass);
+  metric.add(fog.mesh);
+  const flowers: DesertBloom = createDesertBloom(analysis, Math.min(options.splatRadius, analysis.half));
+  metric.add(flowers.mesh);
+
+  // The terrain fades into the camanchaca with three.js fog. It's always set, far away when off, so turning it on
+  // and off doesn't recompile the terrain's shaders.
+  const unitsPerMetre = 1 / site.metersPerUnit;
+  const sceneFog = new THREE.Fog(FOG.color.clone(), 1e8, 1e9);
+  scene.fog = sceneFog;
+
+  let night = false;
+  let fogOn = false;
+  let bloomTarget = 0;
+  let bloom = 0;
+  let earthquake: Earthquake | null = null;
+  let preparingQuake: Promise<boolean> | null = null;
+
+  const splatMeshes = () => [splat, ...(earthquake?.meshes ?? [])];
+
+  // Night and fog both change the background, the terrain, the sky and the far splats
+  const apply = () => {
+    const tint = night ? NIGHT.tint : new THREE.Color(1, 1, 1);
+    for (const mesh of [...splatMeshes(), flowers.mesh]) {
+      mesh.recolor.copy(tint);
+      mesh.updateVersion();
+    }
+    fog.mesh.recolor.copy(night ? NIGHT.fogTint : new THREE.Color(1, 1, 1));
+    fog.mesh.updateVersion();
+    for (const mesh of environment?.terrain ?? []) (mesh.material as THREE.MeshBasicMaterial).color.copy(tint);
+    if (environment?.sky) environment.sky.visible = !night && !fogOn;
+    sky.group.visible = night;
+    turbines?.setNight(night);
+
+    const fogColor = night ? FOG.nightColor : FOG.color;
+    sceneFog.color.copy(fogColor);
+    sceneFog.near = fogOn ? FOG.near * unitsPerMetre : 1e8;
+    sceneFog.far = fogOn ? FOG.far * unitsPerMetre : 1e9;
+    fog.mesh.visible = fogOn;
+    renderer.setClearColor(fogOn ? fogColor : night ? NIGHT.background : options.background, 1);
+
+    hideFar.value = night || fogOn ? 1 : 0;
+    for (const mesh of splatMeshes()) mesh.updateVersion();
+  };
+
+  const metricCamera = new THREE.Vector3();
+  const shake = new THREE.Vector3();
+  const metricToWorld = new THREE.Matrix3();
+
+  return {
+    get splat() {
+      return splat;
+    },
+    setNight(on, hour) {
+      night = on;
+      if (on) {
+        // Tonight (or this morning, for hours past midnight) at the site
+        const today = new Date();
+        const utc = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) + (hour - UTC_OFFSET_HOURS) * 3600e3;
+        sky.setTime(new Date(utc));
+      }
+      apply();
+    },
+    setFog(on) {
+      fogOn = on;
+      apply();
+    },
+    setBloom(on) {
+      bloomTarget = on ? 1 : 0;
+      if (on) flowers.mesh.visible = true;
+    },
+    startQuake() {
+      if (!preparingQuake) {
+        preparingQuake = (async () => {
+          const { createEarthquake } = await import('@/effects/earthquake');
+          const quake = await createEarthquake(file, analysis);
+          if (!quake) return false;
+          // The walls move to their own meshes; the main mesh is rebuilt without them, and swapped in once ready
+          const rest = new SplatMesh({ fileBytes: selectSplats(file, quake.wallFlags, 0), fileType: SplatFileType.SPLAT });
+          await rest.initialized;
+          for (const mesh of [rest, ...quake.meshes]) {
+            mesh.position.copy(splat.position);
+            mesh.quaternion.copy(splat.quaternion);
+            mesh.scale.copy(splat.scale);
+            prepareSplat(mesh);
+          }
+          const parent = splat.parent ?? world;
+          parent.add(rest, ...quake.meshes);
+          splat.removeFromParent();
+          splat.dispose();
+          splat = rest;
+          earthquake = quake;
+          apply();
+          return true;
+        })();
+      }
+      return preparingQuake.then(ready => {
+        if (ready) earthquake?.start(QUAKE_STRENGTH);
+        return ready;
+      });
+    },
+    resetQuake() {
+      earthquake?.reset();
+    },
+    update(seconds, deltaSeconds, camera) {
+      sky.update(seconds);
+      flowers.update(seconds);
+      camera.getWorldPosition(metricCamera);
+      fog.update(seconds, metric.worldToLocal(metricCamera));
+      turbines?.update(seconds);
+
+      if (bloom !== bloomTarget) {
+        const step = deltaSeconds / (bloomTarget > bloom ? BLOOM_SECONDS : UNBLOOM_SECONDS);
+        bloom = bloomTarget > bloom ? Math.min(bloomTarget, bloom + step) : Math.max(bloomTarget, bloom - step);
+        flowers.setBloom(bloom);
+        if (environment) environment.bloom.value = bloom;
+        if (bloom === 0) flowers.mesh.visible = false;
+      }
+
+      shake.set(0, 0, 0);
+      if (earthquake) {
+        earthquake.step(deltaSeconds);
+        metricToWorld.setFromMatrix4(metric.matrixWorld);
+        shake.copy(earthquake.shake).applyMatrix3(metricToWorld);
+      }
+      return shake;
+    },
+    dispose() {
+      sky.dispose();
+      fog.dispose();
+      flowers.dispose();
+      earthquake?.dispose();
+      metric.removeFromParent();
+      scene.fog = null;
+      splat.removeFromParent();
+      splat.dispose();
+    },
+  };
+}

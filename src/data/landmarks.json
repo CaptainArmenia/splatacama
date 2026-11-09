@@ -5,15 +5,15 @@
     "lat": -28.955,
     "lng": -71.476,
     "height": 30,
+    "heading": 127.0,
+    "metersPerUnit": 1.5,
     "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
     "gsplatUrl": "pirca.splat",
     "previewUrl": "pirca0_preview.jpg",
     "thumbnailUrl": "pirca0_thumb.jpg",
     "view": {
-      "minDistance": 7,
       "maxDistance": 9.5,
-      "minPolarAngle": 45,
-      "maxPolarAngle": 82
+      "radius": 7
     }
   },
   {
@@ -22,15 +22,21 @@
     "lat": -29.237684,
     "lng": -71.452685,
     "height": 30,
+    "heading": -42.3,
+    "metersPerUnit": 1.5,
     "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
-    "gsplatUrl": "pirca11.splat",
+    "gsplatUrl": "pirca11_center.splat",
     "previewUrl": "pirca11_preview.jpg",
     "thumbnailUrl": "pirca11_thumb.jpg",
     "view": {
-      "minDistance": 6,
       "maxDistance": 15,
-      "minPolarAngle": 15,
-      "maxPolarAngle": 85
+      "radius": 18.7
+    },
+    "environment": {
+      "terrainUrl": "pirca11_terrain.glb",
+      "skyUrl": "pirca11_sky.jpg",
+      "background": "#e8f2f6",
+      "far": 20000
     }
   },
   {
@@ -39,15 +45,21 @@
     "lat": -29.237427,
     "lng": -71.452572,
     "height": 30,
+    "heading": -35.5,
+    "metersPerUnit": 1.375,
     "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
-    "gsplatUrl": "pirca12.splat",
+    "gsplatUrl": "pirca12_center.splat",
     "previewUrl": "pirca12_preview.jpg",
     "thumbnailUrl": "pirca12_thumb.jpg",
     "view": {
-      "minDistance": 4,
       "maxDistance": 18,
-      "minPolarAngle": 15,
-      "maxPolarAngle": 84
+      "radius": 21.8
+    },
+    "environment": {
+      "terrainUrl": "pirca12_terrain.glb",
+      "skyUrl": "pirca12_sky.jpg",
+      "background": "#dfe8ed",
+      "far": 20000
     }
   },
   {
@@ -56,20 +68,21 @@
     "lat": -29.079736,
     "lng": -71.461843,
     "height": 30,
+    "heading": 54.5,
+    "metersPerUnit": 1.625,
     "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca de planta rectangular y piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
-    "gsplatUrl": "pirca13.splat",
+    "gsplatUrl": "pirca13_center.splat",
     "previewUrl": "pirca13_preview.jpg",
     "thumbnailUrl": "pirca13_thumb.jpg",
     "view": {
-      "minDistance": 4,
       "maxDistance": 11,
-      "minPolarAngle": 15,
-      "maxPolarAngle": 84,
-      "lowViewArc": [
-        -110,
-        100
-      ],
-      "maxPolarAngleOutsideArc": 56
+      "radius": 14.8
+    },
+    "environment": {
+      "terrainUrl": "pirca13_terrain.glb",
+      "skyUrl": "pirca13_sky.jpg",
+      "background": "#b4c5d2",
+      "far": 20000
     }
   }
 ]

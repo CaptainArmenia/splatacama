@@ -1,72 +1,108 @@
 'use client';
-import { assetUrl } from '@/utils/assetUrl';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
-import type { ViewLimits } from '@/types/cesium';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { SparkRenderer, SplatFileType, SplatMesh } from '@sparkjsdev/spark';
+import type { MapLandmark, SceneTurbines } from '@/types/cesium';
+import { assetUrl } from '@/utils/assetUrl';
+import { buildWalkArea } from '@/utils/walkArea';
+import { isVRSupported, VRWalk } from '@/utils/vrWalk';
+import { loadSceneEnvironment, type LoadedEnvironment } from '@/utils/sceneEnvironment';
+import { addWindTurbines, type WindTurbines } from '@/utils/windTurbines';
+import { analyzeSite, parseSplat, type SiteAnalysis } from '@/effects/siteAnalysis';
+import { createSceneEffects, type SceneEffects } from '@/effects/sceneEffects';
+import SceneEffectsPanel, { type QuakeState } from '@/components/SceneEffectsPanel';
+import SceneSound from '@/components/SceneSound';
 
 type Props = {
-  url: string;
+  site: MapLandmark;
+  // Real wind turbines near the site (windTurbines.json)
+  turbines?: SceneTurbines;
   backgroundColor?: string;
-  // Per-site camera limits (landmarks.json `view`), merged over DEFAULT_VIEW_LIMITS
-  viewLimits?: ViewLimits;
   onError?: (errorMessage: string) => void;
 };
 
-// Where the camera starts, and where the reset button puts it back. Scenes are y-down (cameraUp [0, -1, 0])
-// and drawn at 10x scale (see the scene definition below).
+// Where the camera starts, and where the reset button puts it back. Scenes are y-down (camera.up [0, -1, 0])
+// and drawn at SCENE_SCALE.
 const INITIAL_CAMERA_POSITION = [7, -2.5, 5];
 const INITIAL_CAMERA_LOOK_AT = [0, 0, 0];
+const SCENE_SCALE = 10;
 
-// The library's LoaderStatus.Downloading. The enum isn't exported; the other statuses mean processing.
-const LOADER_STATUS_DOWNLOADING = 0;
+// The site's main structure is about 8 viewer units across (see MapLandmark.metersPerUnit)
+const SITE_RADIUS_UNITS = 4;
+
+// Camera limits for sites without their own (landmarks.json `view`). The camera may look from any angle, but away
+// from where the photos were taken splat scenes turn to smears and needles, so it can't zoom out past maxDistance
+// or leave the circle of `radius` around the site. The point it orbits stays within half that circle: close-ups of
+// the circle's edge, where the splat fades out, look smeared.
+const DEFAULT_VIEW = { maxDistance: 14, radius: 14 };
+const MIN_DISTANCE = 1;
+const MAX_TARGET_RADIUS = 0.5;
+// How far the orbit centre may be panned up from the site's ground (viewer units; y points down)
+const MAX_PAN_HEIGHT = 1.5;
+// The camera stays at least at a standing visitor's eye height above the ground, and this far above anything
+// standing on it (walls, bushes), in metres: lower, it ends up in the bushes or under the ground
+const EYE_HEIGHT = 1.5;
+const CAMERA_CLEARANCE = 0.5;
+
+// Camera far plane without terrain (viewer units)
+const DEFAULT_FAR = 1000;
+
+// Spark's default splat footprint, and a smaller one for VR that draws faster at a small cost at splat edges
+const SPLAT_STD_DEV = Math.sqrt(8);
+const VR_SPLAT_STD_DEV = Math.sqrt(5);
 
 type LoadProgress = { stage: 'downloading' | 'processing'; percent: number };
 
-// Camera limits for sites without their own. The library's defaults allow endless zoom and panning, and orbiting to
-// 45 degrees below the ground; away from where the photos were taken, splat scenes turn to smears and needles.
-// maxPolarAngle 81 keeps the camera about 2 m up at the default distance, clear of the bushes.
-const DEFAULT_VIEW_LIMITS = {
-  minDistance: 4,
-  maxDistance: 14,
-  minPolarAngle: 15,
-  maxPolarAngle: 81,
-  lowViewArc: null as number[] | null,
-  maxPolarAngleOutsideArc: 81,
-};
-
-// How far the orbit centre may be panned from the site centre: sideways, and up from the ground (viewer units)
-const MAX_PAN_RADIUS = 2;
-const MAX_PAN_HEIGHT = 1.5;
-
-// Outside a site's lowViewArc, the height limit eases from maxPolarAngle to maxPolarAngleOutsideArc over this many
-// degrees of orbit, so the camera rises smoothly instead of jumping
-const ARC_RAMP_DEGREES = 30;
-
-const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
-
-// Degrees from the arc to `direction` (0 inside), all in degrees around the site, clockwise from the start side
-function degreesOutsideArc(direction: number, [from, to]: number[]) {
-  const span = (((to - from) % 360) + 360) % 360;
-  const fromStart = (((direction - from) % 360) + 360) % 360;
-  if (fromStart <= span) return 0;
-  return Math.min(fromStart - span, 360 - fromStart);
+// Downloads a file, reporting the bytes received and the total when the server sends its length
+async function download(url: string, signal: AbortSignal, onProgress: (received: number, total: number) => void) {
+  const response = await fetch(url, { signal });
+  if (!response.ok || !response.body) throw new Error(`No se pudo descargar la escena (HTTP ${response.status})`);
+  const total = Number(response.headers.get('content-length')) || 0;
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.byteLength;
+    onProgress(received, total);
+  }
+  const bytes = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
 }
 
-export default function GSplatViewer({
-  url,
-  backgroundColor = '#f5f5f5',
-  viewLimits,
-  onError
-}: Props) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const viewerRef = useRef<any>(null);
-  const [error, setError] = useState<string | null>(null);
-  // Our own loading indicator; the library's is turned off (its box is too small for its text, and in English)
-  const [loadProgress, setLoadProgress] = useState<LoadProgress | null>({ stage: 'downloading', percent: 0 });
+// Lets the loading panel repaint before a long synchronous step
+const nextFrame = () => new Promise(resolve => setTimeout(resolve, 0));
 
-  // The limits as a string, so a new but equal object doesn't restart the viewer
-  const viewLimitsKey = JSON.stringify(viewLimits ?? {});
+export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f5', onError }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const viewerRef = useRef<{ camera: THREE.PerspectiveCamera; controls: OrbitControls } | null>(null);
+  const vrRef = useRef<VRWalk | null>(null);
+  const effectsRef = useRef<SceneEffects | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loadProgress, setLoadProgress] = useState<LoadProgress | null>({ stage: 'downloading', percent: 0 });
+  const [vrReady, setVrReady] = useState(false);
+  const [vrError, setVrError] = useState(false);
+
+  const [effectsReady, setEffectsReady] = useState(false);
+  const [night, setNight] = useState(false);
+  const [hour, setHour] = useState(22);
+  const [fog, setFog] = useState(false);
+  const [bloom, setBloom] = useState(false);
+  const [quake, setQuake] = useState<QuakeState>('idle');
+
+  // What the viewer is built from, as a string, so new but equal objects don't restart it
+  const sceneKey = JSON.stringify({
+    url: site.gsplatUrl, view: site.view, environment: site.environment, turbines,
+    lat: site.lat, lng: site.lng, heading: site.heading, metersPerUnit: site.metersPerUnit,
+  });
 
   // Keep the latest onError without making it restart the viewer
   const onErrorRef = useRef(onError);
@@ -74,141 +110,255 @@ export default function GSplatViewer({
     onErrorRef.current = onError;
   }, [onError]);
 
+  useEffect(() => {
+    effectsRef.current?.setNight(night, hour);
+  }, [effectsReady, night, hour]);
+  useEffect(() => {
+    effectsRef.current?.setFog(fog);
+  }, [effectsReady, fog]);
+  useEffect(() => {
+    effectsRef.current?.setBloom(bloom);
+  }, [effectsReady, bloom]);
+
+  const startQuake = () => {
+    const effects = effectsRef.current;
+    if (!effects) return;
+    setQuake('preparing');
+    effects.startQuake()
+      .then(ready => setQuake(ready ? 'shaken' : 'unavailable'))
+      .catch((e: unknown) => {
+        console.error('Error starting the earthquake:', e);
+        setQuake('unavailable');
+      });
+  };
+  const resetQuake = () => {
+    effectsRef.current?.resetQuake();
+    setQuake('idle');
+  };
+
   // Reset camera to initial position
   const resetCamera = () => {
     const viewer = viewerRef.current;
-    if (!viewer?.camera) return;
-
-    const lookAt = new THREE.Vector3().fromArray(INITIAL_CAMERA_LOOK_AT);
+    if (!viewer) return;
     viewer.camera.position.fromArray(INITIAL_CAMERA_POSITION);
-    if (viewer.controls) {
-      viewer.controls.target.copy(lookAt);
-      viewer.controls.update();
-    } else {
-      viewer.camera.lookAt(lookAt);
-    }
+    viewer.controls.target.fromArray(INITIAL_CAMERA_LOOK_AT);
+    viewer.controls.update();
+  };
+
+  const enterVR = () => {
+    setVrError(false);
+    vrRef.current?.enter().catch((e: unknown) => {
+      console.error('Error starting VR:', e);
+      setVrError(true);
+    });
   };
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    const { url, view, environment: env, turbines: turbineConfig, lat, lng, heading, metersPerUnit } = JSON.parse(sceneKey);
+    const limits = { ...DEFAULT_VIEW, ...view };
+    const background = new THREE.Color(env?.background ?? backgroundColor);
+    const far = env?.far ?? DEFAULT_FAR;
 
     let cancelled = false;
+    const downloadAbort = new AbortController();
 
-    // A container React doesn't manage, so the library's DOM changes don't conflict with React's
+    // A container React doesn't manage, for the canvas
     const viewerContainer = document.createElement('div');
     viewerContainer.style.width = '100%';
     viewerContainer.style.height = '100%';
     viewerContainer.setAttribute('data-gsplat-container', 'true');
     container.appendChild(viewerContainer);
 
-    const viewer = new GaussianSplats3D.Viewer({
-      selfDrivenMode: true,
-      cameraUp: [0, -1, 0],
-      initialCameraPosition: INITIAL_CAMERA_POSITION,
-      initialCameraLookAt: INITIAL_CAMERA_LOOK_AT,
-      rootElement: viewerContainer,
-      backgroundColor: new THREE.Color(backgroundColor),
-      gpuAcceleratedSort: false,
-      sharedMemoryForWorkers: false,
-      // Enable touch controls for mobile
-      enablePointerLock: false,
-      webXRMode: GaussianSplats3D.WebXRMode.NONE,
-    });
-    viewerRef.current = viewer;
+    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setClearColor(background, 1);
+    renderer.domElement.style.display = 'block';
+    viewerContainer.appendChild(renderer.domElement);
 
-    // Keep the camera where the scene looks right (see DEFAULT_VIEW_LIMITS)
-    const limits = { ...DEFAULT_VIEW_LIMITS, ...JSON.parse(viewLimitsKey) };
-    const controls = viewer.controls;
-    const startDirection = Math.atan2(INITIAL_CAMERA_POSITION[2], INITIAL_CAMERA_POSITION[0]);
-    const panShift = new THREE.Vector3();
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(50, 1, 0.1, far);
+    camera.up.set(0, -1, 0);
+    camera.position.fromArray(INITIAL_CAMERA_POSITION);
+    camera.lookAt(new THREE.Vector3().fromArray(INITIAL_CAMERA_LOOK_AT));
+    // VR moves the visitor by moving this rig; on the desktop it stays put
+    const rig = new THREE.Group();
+    rig.add(camera);
+    scene.add(rig);
+    // Everything drawn for the site, in the viewer's frame. VR shows it upright and at real size.
+    const world = new THREE.Group();
+    world.name = 'site';
+    scene.add(world);
+    const spark = new SparkRenderer({ renderer, maxStdDev: SPLAT_STD_DEV });
+    scene.add(spark);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.rotateSpeed = 0.5;
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.keys = { LEFT: 'KeyA', UP: 'KeyW', RIGHT: 'KeyD', BOTTOM: 'KeyS' };
+    controls.listenToKeyEvents(window);
+    controls.target.fromArray(INITIAL_CAMERA_LOOK_AT);
+    controls.minDistance = MIN_DISTANCE;
+    controls.maxDistance = limits.maxDistance;
+    viewerRef.current = { camera, controls };
+
+    // Keep the camera inside the site's circle and above what's under it, and the orbit centre near the ground
+    let analysis: SiteAnalysis | null = null;
     const keepCameraInLimits = () => {
-      // Pull the orbit centre back near the site, moving the camera along so the view doesn't swing
       const target = controls.target;
-      const radius = Math.hypot(target.x, target.z);
-      const scale = radius > MAX_PAN_RADIUS ? 1 - MAX_PAN_RADIUS / radius : 0;
-      // y points down: the ground is y = 0, so the allowed heights are -MAX_PAN_HEIGHT to 0
-      const excessY = target.y > 0 ? target.y : target.y < -MAX_PAN_HEIGHT ? target.y + MAX_PAN_HEIGHT : 0;
-      panShift.set(target.x * scale, excessY, target.z * scale);
-      if (panShift.lengthSq() > 0) {
-        target.sub(panShift);
-        viewer.camera.position.sub(panShift);
+      const targetRadius = Math.hypot(target.x, target.z);
+      const maxTargetRadius = limits.radius * MAX_TARGET_RADIUS;
+      if (targetRadius > maxTargetRadius) {
+        target.x *= maxTargetRadius / targetRadius;
+        target.z *= maxTargetRadius / targetRadius;
       }
-    };
+      target.y = THREE.MathUtils.clamp(target.y, -MAX_PAN_HEIGHT, 0);
 
-    // Outside a site's lowViewArc the camera is drawn raised to maxPolarAngleOutsideArc. The controls keep the height
-    // the visitor chose, so the camera comes back down when it orbits back into the arc instead of staying raised.
-    const chosenPosition = new THREE.Vector3();
-    const shownPosition = new THREE.Vector3();
-    const raiseOutsideArc = () => {
-      const offset = viewer.camera.position.clone().sub(controls.target);
-      const distance = offset.length();
-      const direction = ((startDirection - Math.atan2(offset.z, offset.x)) * 180) / Math.PI;
-      const ramp = Math.min(degreesOutsideArc(direction, limits.lowViewArc) / ARC_RAMP_DEGREES, 1);
-      const maxPolar = toRadians(limits.maxPolarAngle + (limits.maxPolarAngleOutsideArc - limits.maxPolarAngle) * ramp);
-      if (Math.acos(-offset.y / distance) <= maxPolar) return;
-      const horizontal = Math.hypot(offset.x, offset.z);
-      offset.set(offset.x / horizontal * distance * Math.sin(maxPolar), -distance * Math.cos(maxPolar),
-        offset.z / horizontal * distance * Math.sin(maxPolar));
-      viewer.camera.position.copy(controls.target).add(offset);
-      viewer.camera.lookAt(controls.target);
-    };
-
-    if (controls) {
-      controls.minDistance = limits.minDistance;
-      controls.maxDistance = limits.maxDistance;
-      controls.minPolarAngle = toRadians(limits.minPolarAngle);
-      controls.maxPolarAngle = toRadians(limits.maxPolarAngle);
-      controls.addEventListener('change', keepCameraInLimits);
-      keepCameraInLimits();
-      if (limits.lowViewArc) {
-        const updateControls = controls.update.bind(controls);
-        controls.update = (...args: unknown[]) => {
-          // Start from the chosen height, unless something else moved the camera since (the reset button)
-          if (viewer.camera.position.equals(shownPosition)) viewer.camera.position.copy(chosenPosition);
-          const changed = updateControls(...args);
-          chosenPosition.copy(viewer.camera.position);
-          raiseOutsideArc();
-          shownPosition.copy(viewer.camera.position);
-          return changed;
-        };
+      const position = camera.position;
+      const radius = Math.hypot(position.x, position.z);
+      let moved = false;
+      if (radius > limits.radius) {
+        const scale = limits.radius / radius;
+        position.x *= scale;
+        position.z *= scale;
+        moved = true;
       }
-    }
-    // A short click would move the orbit centre to the clicked splat, even a hill a kilometre away (and taps on
-    // phones count as clicks). Turn that off, and the library's debug keys too: the arrows roll the horizon and O
-    // switches to an orthographic camera that ignores the limits.
-    viewer.onMouseClick = () => {};
-    window.removeEventListener('keydown', viewer.keyDownListener);
+      // The site analysis is in metres with y up (see siteAnalysis.ts); before it's ready, the site's ground level
+      const x = position.x * metersPerUnit;
+      const z = -position.z * metersPerUnit;
+      const lowest = analysis
+        ? Math.max(analysis.groundAt(x, z) + EYE_HEIGHT, analysis.topAt(x, z) + CAMERA_CLEARANCE)
+        : EYE_HEIGHT;
+      const floor = -lowest / metersPerUnit;
+      if (position.y > floor) {
+        position.y = floor;
+        moved = true;
+      }
+      if (moved) camera.lookAt(target);
+    };
+    controls.addEventListener('change', keepCameraInLimits);
+    controls.update();
 
+    const resize = () => {
+      const width = viewerContainer.clientWidth;
+      const height = viewerContainer.clientHeight;
+      // The headset sets the size while VR is on
+      if (!width || !height || renderer.xr.isPresenting) return;
+      renderer.setSize(width, height);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    };
+    resize();
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(viewerContainer);
+
+    // setAnimationLoop rather than requestAnimationFrame: in VR the headset drives the frames
+    let vr: VRWalk | null = null;
+    let effects: SceneEffects | null = null;
+    let lastTime = 0;
+    renderer.setAnimationLoop((time: number) => {
+      const deltaSeconds = lastTime ? Math.min((time - lastTime) / 1000, 0.1) : 0;
+      lastTime = time;
+      if (vr?.active) vr.update(deltaSeconds);
+      else controls.update();
+      const shake = effects?.update(time / 1000, deltaSeconds, camera);
+      if (shake) camera.position.add(shake);
+      renderer.render(scene, camera);
+      if (shake) camera.position.sub(shake);
+    });
+
+    let mesh: SplatMesh | null = null;
+    let environment: LoadedEnvironment | null = null;
+    let windTurbines: WindTurbines | null = null;
     const load = async () => {
       try {
         setError(null);
         setLoadProgress({ stage: 'downloading', percent: 0 });
-        const splatFileUrl = assetUrl(url);
 
-        const onProgress = (percent: number, _label: string, status: number) => {
-          if (cancelled) return;
-          const next: LoadProgress = status === LOADER_STATUS_DOWNLOADING
-            ? { stage: 'downloading', percent: Math.floor(percent) }
-            : { stage: 'processing', percent: 100 };
-          // The library reports progress very often; only re-render when what we show changes
-          setLoadProgress(prev => (prev && prev.stage === next.stage && prev.percent === next.percent ? prev : next));
+        // The splat and the terrain download together; the bar shows both once their sizes are known
+        const received = { splat: 0, terrain: 0 };
+        const totals = { splat: 0, terrain: 0 };
+        const showProgress = () => {
+          if (cancelled || !totals.splat || (env && !totals.terrain)) return;
+          const percent = Math.min(100, Math.floor(((received.splat + received.terrain) / (totals.splat + totals.terrain)) * 100));
+          // Only re-render when the shown number changes
+          setLoadProgress(prev => (prev?.percent === percent ? prev : { stage: 'downloading', percent }));
         };
+        // Without it the scene still works, cut off at the edge of the site
+        const environmentLoaded = env
+          ? loadSceneEnvironment(env, renderer.capabilities.getMaxAnisotropy(), (loaded, total) => {
+            received.terrain = loaded;
+            totals.terrain = total;
+            showProgress();
+          }).catch((e: unknown) => {
+            console.error('Error loading scene environment:', e);
+            totals.terrain = 1;
+            return null;
+          })
+          : Promise.resolve(null);
+        const bytes = await download(assetUrl(url), downloadAbort.signal, (got, total) => {
+          received.splat = got;
+          totals.splat = total;
+          showProgress();
+        });
+        if (cancelled) return;
+        setLoadProgress({ stage: 'processing', percent: 100 });
+        await nextFrame();
 
-        await viewer.addSplatScenes([
-          {
-            path: splatFileUrl,
-            // Don't let the library guess the format from the URL; a query string or other ending would break it
-            format: GaussianSplats3D.SceneFormat.Splat,
-            position: [0, 0, 0],
-            rotation: [0, 0, 0, 1], // Quaternion format [x,y,z,w]
-            scale: [10, 10, 10]
-          }
-        ], false, onProgress); // false: don't show the library's loading UI
+        // The site read off the splats, for the effects and the camera's floor (metres, y up)
+        const metersPerFileUnit = metersPerUnit * SCENE_SCALE;
+        const file = parseSplat(bytes, metersPerFileUnit);
+        const siteAnalysis = analyzeSite(file, SITE_RADIUS_UNITS * metersPerUnit, (limits.radius + 2) * metersPerUnit);
+        // Where a visitor can walk in VR, read off the splats; only headsets need it
+        const walkArea = (await isVRSupported())
+          ? buildWalkArea(bytes, metersPerFileUnit, { x: INITIAL_CAMERA_POSITION[0], z: -INITIAL_CAMERA_POSITION[2] },
+            SITE_RADIUS_UNITS * metersPerUnit)
+          : null;
         if (cancelled) return;
 
+        // lod: Spark builds a level-of-detail tree in a worker and then draws at most a budget of splats per frame.
+        // Only headsets need it: Spark's budget for them (500k splats on a Quest) is below a scene's splat count
+        // (about 1M). Elsewhere the budget covers the whole scene, and building the tree would add over a second to
+        // loading. Spark keeps the bytes it's given (they move to its worker), so it gets a copy: the effects cut
+        // the walls out of the file later.
+        mesh = new SplatMesh({ fileBytes: bytes.slice(), fileType: SplatFileType.SPLAT, lod: walkArea !== null });
+        mesh.scale.setScalar(SCENE_SCALE);
+        world.add(mesh);
+        const [, loadedEnvironment] = await Promise.all([mesh.initialized, environmentLoaded]);
+        environment = loadedEnvironment;
+        if (cancelled) {
+          environment?.dispose();
+          return;
+        }
+        if (environment) world.add(environment.group);
+        analysis = siteAnalysis;
+
+        if (turbineConfig) windTurbines = addWindTurbines(world, turbineConfig, heading);
+
+        effects = await createSceneEffects({
+          world, scene, renderer, splat: mesh, file, analysis: siteAnalysis, environment, turbines: windTurbines,
+          site: { lat, lng, heading, metersPerUnit },
+          splatRadius: limits.radius * metersPerUnit,
+          background, far,
+        });
+        if (cancelled) {
+          effects.dispose();
+          return;
+        }
+        mesh = null; // the effects own it now (the earthquake can replace it)
+        effectsRef.current = effects;
+        setEffectsReady(true);
         setLoadProgress(null);
-        viewer.start();
+
+        if (walkArea) {
+          vr = new VRWalk(renderer, camera, rig, world, walkArea, metersPerUnit, far * metersPerUnit, (active) => {
+            spark.maxStdDev = active ? VR_SPLAT_STD_DEV : SPLAT_STD_DEV;
+          });
+          vrRef.current = vr;
+          setVrReady(true);
+        }
       } catch (err) {
         // Unmounting aborts the download, which lands here too
         if (cancelled) return;
@@ -224,16 +374,28 @@ export default function GSplatViewer({
 
     return () => {
       cancelled = true;
+      downloadAbort.abort();
       viewerRef.current = null;
-      controls?.removeEventListener('change', keepCameraInLimits);
-      // Hide right away so a replacement viewer doesn't sit below this one while it shuts down
-      viewerContainer.style.display = 'none';
-      // dispose() stops rendering, aborts a download in progress and ends the sorting worker
-      Promise.resolve(viewer.dispose())
-        .catch((e: unknown) => console.error('Error disposing splat viewer:', e))
-        .finally(() => viewerContainer.remove());
+      vrRef.current = null;
+      effectsRef.current = null;
+      setVrReady(false);
+      setEffectsReady(false);
+      vr?.dispose();
+      renderer.setAnimationLoop(null);
+      resizeObserver.disconnect();
+      controls.removeEventListener('change', keepCameraInLimits);
+      controls.stopListenToKeyEvents();
+      controls.dispose();
+      effects?.dispose();
+      mesh?.dispose();
+      windTurbines?.dispose();
+      environment?.dispose();
+      spark.dispose();
+      renderer.dispose();
+      renderer.forceContextLoss();
+      viewerContainer.remove();
     };
-  }, [url, backgroundColor, viewLimitsKey]);
+  }, [sceneKey, backgroundColor]);
 
   return (
     <div
@@ -291,8 +453,54 @@ export default function GSplatViewer({
         </div>
       )}
 
-      {/* Reset camera button */}
+      {/* Effects and sound, top right */}
+      <div className="absolute top-4 right-4 z-50 flex items-start gap-2">
+        {effectsReady && (
+          <SceneEffectsPanel
+            night={night} onNightChange={setNight}
+            hour={hour} onHourChange={setHour}
+            fog={fog} onFogChange={setFog}
+            bloom={bloom} onBloomChange={setBloom}
+            quake={quake} onStartQuake={startQuake} onResetQuake={resetQuake}
+          />
+        )}
+        <SceneSound />
+      </div>
+
       <div className="absolute bottom-2 sm:bottom-4 right-2 sm:right-4 flex items-center gap-2">
+        {/* OpenStreetMap's and Copernicus' licences ask for these credits */}
+        {(turbines || site.environment) && (
+          <span className="hidden sm:flex max-w-md flex-col items-end rounded bg-black/40 px-1.5 py-0.5 text-right text-[10px] leading-tight text-white/80">
+            {turbines && (
+              <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" className="hover:text-white">
+                Aerogeneradores © colaboradores de OpenStreetMap
+              </a>
+            )}
+            {site.environment && (
+              <span>Terreno: Copernicus DEM © DLR e.V., © Airbus; contiene datos Copernicus Sentinel modificados (2026)</span>
+            )}
+          </span>
+        )}
+        {vrError && (
+          <span className="rounded-full bg-gray-900/90 px-3 py-1.5 text-xs text-white shadow-md">
+            No se pudo iniciar la realidad virtual
+          </span>
+        )}
+        {/* Only on devices with a VR headset, once the scene is ready */}
+        {vrReady && (
+          <button
+            onClick={enterVR}
+            className="flex items-center gap-1.5 rounded-full bg-gray-900/90 px-3 py-1.5 text-xs sm:text-sm font-medium text-white shadow-md transition-colors hover:bg-orange-600"
+            title="Stick izquierdo: caminar. Stick derecho: girar."
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 sm:h-5 sm:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h14a2 2 0 012 2v6a2 2 0 01-2 2h-4l-2-3h-2l-2 3H5a2 2 0 01-2-2V9z" />
+            </svg>
+            Ver en VR
+          </button>
+        )}
+
+        {/* Reset camera button */}
         <button
           onClick={resetCamera}
           className="bg-white/70 backdrop-blur-sm rounded-full p-1 sm:p-2 shadow-md hover:bg-white/90 transition-all"
