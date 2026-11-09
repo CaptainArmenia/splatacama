@@ -6,6 +6,8 @@ Audited on 2026-09-27 at commit `1d6a321`. Covers everything in `src/`, the conf
 
 Items are numbered so they can be referenced in commits ("fixes audit #5"). Check an item off when it's done.
 
+**Since then (2026-11-08):** the splat viewer moved from `@mkkellogg/gaussian-splats-3d` to Spark, so the findings about the old viewer (#6, #12, #21) describe code that's been replaced; the fixes' intent carries over.
+
 **Status on 2026-10-31:** 21 of 23 items are done, and everything in the code is fixed. Two items still need someone with the accounts: #11 (upload the pin thumbnails to R2) and #17 (revoke the old Cesium token). Problems found since the audit are listed [at the end](#found-after-the-audit).
 
 ## Summary
