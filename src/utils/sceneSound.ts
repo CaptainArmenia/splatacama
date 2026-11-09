@@ -5,7 +5,7 @@ import type { TurbineVoice } from '@/utils/windTurbines';
 
 const SOUND = {
   volume: 0.6,
-  // Fade when the sound starts, stops, or is muted
+  // Fade when a sound starts or is turned on or off
   fadeSeconds: 1.5,
   // The noise all voices share; the wind's gusts hide that it loops
   noiseSeconds: 12,
@@ -14,10 +14,13 @@ const SOUND = {
   planEverySeconds: 1,
 };
 
+/** Which of the scene's sounds play */
+export type SoundChoice = { wind: boolean; turbines: boolean };
+
 export type SceneSound = {
-  /** Call from a click or key press handler: the first call starts the sound (unless muted) */
+  /** Call from a click or key press handler: the first call starts the sound (unless all is off) */
   unlock: () => void;
-  setMuted: (muted: boolean) => void;
+  setSounds: (choice: SoundChoice) => void;
   /** The scene's wind turbines (positions in the frame setListener's `frame` holds), or null for none */
   setTurbines: (voices: TurbineVoice[] | null, unitsPerMetre: number) => void;
   /** Call every frame: the listener follows the camera, in `frame`'s coordinates (the scene's world group) */
@@ -29,16 +32,19 @@ export type SceneSound = {
  * The scenes' sound, with the Web Audio API: the wind, and the nearest wind turbines from where they stand.
  *
  * Browsers only let a page start sound after the visitor interacts with it, so nothing plays until `unlock()` is
- * called from a click or key press. Sound pauses while the tab is hidden, and a muted context is suspended.
+ * called from a click or key press. Sound pauses while the tab is hidden, and with every sound off.
  */
 export function createSceneSound(): SceneSound {
   let context: AudioContext | null = null;
   let master: GainNode | null = null;
+  // Each sound has its own volume under the master, so each can be turned off
+  let windBus: GainNode | null = null;
+  let turbineBus: GainNode | null = null;
   let noise: AudioBuffer | null = null;
   let wind: WindVoice | null = null;
   let turbines: TurbineSound | null = null;
   let turbineVoices: { voices: TurbineVoice[]; unitsPerMetre: number } | null = null;
-  let muted = false;
+  let choice: SoundChoice = { wind: true, turbines: true };
   let unlocked = false;
   let disposed = false;
   let planTimer: ReturnType<typeof setInterval> | undefined;
@@ -47,20 +53,28 @@ export function createSceneSound(): SceneSound {
   const startTurbines = () => {
     turbines?.dispose();
     turbines = null;
-    if (context && master && noise && turbineVoices?.voices.length) {
-      turbines = createTurbineSound(context, master, noise, turbineVoices.voices, turbineVoices.unitsPerMetre);
+    if (context && turbineBus && noise && turbineVoices?.voices.length) {
+      turbines = createTurbineSound(context, turbineBus, noise, turbineVoices.voices, turbineVoices.unitsPerMetre);
     }
   };
 
-  // Fades the master volume to match `muted`. A muted context is suspended after the fade, so it uses no CPU.
-  const applyMuted = () => {
-    if (!context || !master) return;
+  const fade = (param: AudioParam, to: number) => {
+    if (!context) return;
     const now = context.currentTime;
+    param.cancelScheduledValues(now);
+    param.setValueAtTime(param.value, now);
+    param.linearRampToValueAtTime(to, now + SOUND.fadeSeconds);
+  };
+  const silent = () => !choice.wind && !choice.turbines;
+
+  // Fades each sound to match `choice`. With all off, the context is suspended after the fade, so it uses no CPU.
+  const applyChoice = () => {
+    if (!context || !master || !windBus || !turbineBus) return;
     clearTimeout(suspendTimer);
-    master.gain.cancelScheduledValues(now);
-    master.gain.setValueAtTime(master.gain.value, now);
-    master.gain.linearRampToValueAtTime(muted ? 0 : SOUND.volume, now + SOUND.fadeSeconds);
-    if (muted) {
+    fade(windBus.gain, choice.wind ? 1 : 0);
+    fade(turbineBus.gain, choice.turbines ? 1 : 0);
+    fade(master.gain, silent() ? 0 : SOUND.volume);
+    if (silent()) {
       suspendTimer = setTimeout(() => context?.suspend(), SOUND.fadeSeconds * 1000 + 100);
     } else if (!document.hidden) {
       context.resume();
@@ -72,19 +86,25 @@ export function createSceneSound(): SceneSound {
     master = context.createGain();
     master.gain.value = 0;
     master.connect(context.destination);
+    windBus = context.createGain();
+    windBus.gain.value = 0;
+    windBus.connect(master);
+    turbineBus = context.createGain();
+    turbineBus.gain.value = 0;
+    turbineBus.connect(master);
     noise = pinkNoise(context, SOUND.noiseSeconds);
-    wind = createWind(context, master, noise);
+    wind = createWind(context, windBus, noise);
     const plan = () => context && wind?.schedule(context.currentTime + SOUND.planAheadSeconds);
     plan();
     planTimer = setInterval(plan, SOUND.planEverySeconds * 1000);
     startTurbines();
-    applyMuted();
+    applyChoice();
   };
 
   const onVisibilityChange = () => {
     if (!context) return;
     if (document.hidden) context.suspend();
-    else if (!muted) context.resume();
+    else if (!silent()) context.resume();
   };
   document.addEventListener('visibilitychange', onVisibilityChange);
 
@@ -99,16 +119,16 @@ export function createSceneSound(): SceneSound {
       unlocked = true;
       start();
     },
-    setMuted(value) {
-      muted = value;
-      applyMuted();
+    setSounds(value) {
+      choice = { ...value };
+      applyChoice();
     },
     setTurbines(voices, unitsPerMetre) {
       turbineVoices = voices ? { voices, unitsPerMetre } : null;
       startTurbines();
     },
     setListener(camera, frame) {
-      if (!context || muted || context.state !== 'running') return;
+      if (!context || silent() || context.state !== 'running') return;
       // The camera's position and its forward and up directions, in the frame's coordinates (in VR the frame is
       // turned and scaled, and the camera is the headset's)
       toFrame.copy(frame.matrixWorld).invert().multiply(camera.matrixWorld);

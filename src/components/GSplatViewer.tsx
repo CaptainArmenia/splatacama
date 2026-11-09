@@ -488,7 +488,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
             quake={quake} onStartQuake={startQuake} onResetQuake={resetQuake}
           />
         )}
-        <SceneSound sound={sound} />
+        <SceneSound sound={sound} hasTurbines={!!turbines} />
       </div>
 
       <div className="absolute bottom-2 sm:bottom-4 right-2 sm:right-4 flex items-center gap-2">

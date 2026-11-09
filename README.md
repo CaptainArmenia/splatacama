@@ -130,7 +130,8 @@ src/
     CesiumMapComponent.tsx    map UI: pins, hover and selection, panels, controls
     GSplatViewer.tsx          splat viewer (Spark): loading, terrain, camera limits, effects panel, sound, VR button
     SceneEffectsPanel.tsx     the "Efectos" panel: night, camanchaca, desierto florido, earthquake
-    SceneSound.tsx            wind sound and its mute button
+    SceneSound.tsx            the sound button and its panel: wind and turbines, each on or off
+    PanelToggle.tsx           the on/off switch both panels use
     LandmarkInfoPanel.tsx     info panel on the map
     ToggleableInfoPanel.tsx   info panel on the scene page
     LandmarkDetails.tsx       what both info panels show: photo, name, description
@@ -150,7 +151,7 @@ src/
     sceneEnvironment.ts       terrain and sky around a cropped splat, with the terrain's detail texture
     meshAntialias.ts          smooths the meshes' edges (FXAA) without touching the splats
     windTurbines.ts           real wind turbines on a scene's terrain or backdrop, with turning rotors
-    sceneSound.ts             the scene's sound (Web Audio): mute, start on the first click, listener follows the camera
+    sceneSound.ts             the scene's sound (Web Audio): each sound on or off, start on the first click, listener follows the camera
     windAmbience.ts           wind made from noise, in gusts (no recording)
     turbineSound.ts           the nearest wind turbines' whine and blade swish, each from where it stands
     walkArea.ts               where a visitor can walk in VR: ground height, walls and bushes, edge of the detailed area

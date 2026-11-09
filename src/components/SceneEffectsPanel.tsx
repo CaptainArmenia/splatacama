@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import PanelToggle from '@/components/PanelToggle';
 
 export type QuakeState = 'idle' | 'preparing' | 'shaken' | 'unavailable';
 
@@ -23,32 +24,6 @@ const formatHour = (hour: number) => {
   return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 };
 
-function Toggle({ label, description, on, onChange }: {
-  label: string;
-  description: string;
-  on: boolean;
-  onChange: (on: boolean) => void;
-}) {
-  return (
-    <button
-      onClick={() => onChange(!on)}
-      aria-pressed={on}
-      className="flex w-full items-start gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-white/5"
-    >
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium">{label}</span>
-        <span className="block text-xs text-gray-400">{description}</span>
-      </span>
-      <span
-        className={`mt-0.5 flex h-5 w-9 flex-shrink-0 items-center rounded-full p-0.5 transition-colors ${on ? 'bg-orange-600' : 'bg-gray-600'}`}
-        aria-hidden="true"
-      >
-        <span className={`h-4 w-4 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-4' : ''}`} />
-      </span>
-    </button>
-  );
-}
-
 /** The scene's "Efectos" button and the panel it opens (see src/effects/sceneEffects.ts) */
 export default function SceneEffectsPanel(props: Props) {
   const [open, setOpen] = useState(false);
@@ -68,7 +43,7 @@ export default function SceneEffectsPanel(props: Props) {
 
       {open && (
         <div className="absolute right-0 mt-2 w-72 max-w-[calc(100vw-2rem)] space-y-1 rounded-lg border border-gray-700 bg-gray-900/90 p-2 text-white shadow-lg backdrop-blur-sm">
-          <Toggle
+          <PanelToggle
             label="Noche"
             description="Las estrellas y la Vía Láctea reales sobre este lugar, a la hora elegida."
             on={props.night}
@@ -89,13 +64,13 @@ export default function SceneEffectsPanel(props: Props) {
               <output className="w-10 text-right font-mono text-white">{formatHour(props.hour)}</output>
             </label>
           )}
-          <Toggle
+          <PanelToggle
             label="Camanchaca"
             description="La niebla costera que entra desde el Pacífico."
             on={props.fog}
             onChange={props.onFogChange}
           />
-          <Toggle
+          <PanelToggle
             label="Desierto florido"
             description="Pata de guanaco, añañuca y suspiro sobre el suelo descubierto."
             on={props.bloom}
