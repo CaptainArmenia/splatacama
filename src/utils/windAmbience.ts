@@ -7,26 +7,26 @@
 
 const WIND = {
   // Low-pass cutoff (Hz) and level of the body, from calm to the strongest gust
-  bodyCutoffHz: [320, 2200] as const,
-  bodyGain: [0.2, 1] as const,
+  bodyCutoffHz: [380, 1300] as const,
+  bodyGain: [0.3, 0.6] as const,
   // The air's hiss: noise above this (Hz), at this level in the strongest gusts
   hissFromHz: 2000,
-  hissGain: 0.3,
+  hissGain: 0.1,
   // The whistle: two narrow bands that drift slowly within this range (Hz), heard above `whistleFrom` gust strength
   whistleHz: [480, 900] as const,
   whistleQ: 16,
-  whistleGain: 0.05,
-  whistleFrom: 0.6,
+  whistleGain: 0.012,
+  whistleFrom: 0.7,
   // Below this (Hz, cut steeply) is rumble, which read as traffic
   highPassHz: 130,
   // Gust strength (0 to 1): drifts around `mean`, pulled back toward it over `returnSeconds`, with gusts on top
-  mean: 0.4,
+  mean: 0.35,
   returnSeconds: 7,
-  drift: 0.22,
-  gustEverySeconds: [6, 16] as const,
-  gustRiseSeconds: [1.2, 3] as const,
-  gustFallSeconds: [4, 9] as const,
-  gustSize: [0.25, 0.55] as const,
+  drift: 0.12,
+  gustEverySeconds: [8, 20] as const,
+  gustRiseSeconds: [2, 4] as const,
+  gustFallSeconds: [5, 10] as const,
+  gustSize: [0.1, 0.3] as const,
   // How often the parameters get a new target (seconds); they glide there
   step: 0.25,
 };

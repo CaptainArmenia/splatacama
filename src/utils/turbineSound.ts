@@ -12,15 +12,15 @@ const TURBINE = {
   voices: 8,
   // At this distance (metres) a turbine is as loud as `level`; twice as far, half as loud
   refMetres: 400,
-  level: 0.22,
+  level: 0.3,
   // The swish: noise in a band around this (Hz), its level swinging this far each time a blade passes
   swishHz: 700,
   swishQ: 0.9,
   swishDepth: 0.6,
   // The whine: its lowest tone (Hz, each turbine its own in this range), and its tones as [multiple, level]
-  whineHz: [300, 440] as const,
-  whineTones: [[1, 1], [2, 0.55], [2.9, 0.3], [4.3, 0.12]] as const,
-  whineGain: 0.08,
+  whineHz: [520, 700] as const,
+  whineTones: [[1, 1], [2, 0.4], [3, 0.15]] as const,
+  whineGain: 0.3,
   // It wavers by this much (cents), this often (Hz)
   waverCents: 7,
   waverHz: 0.13,
