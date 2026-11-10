@@ -53,6 +53,19 @@ describe('landmarks.json', () => {
     if (site.view?.radius !== undefined) expect(site.view.radius).toBeGreaterThan(4);
   });
 
+  it.each(sites.filter(site => site.sun).map(site => [site.id, site] as const))(
+    '%s has its sun in the sky', (_, site) => {
+      const sun = site.sun!;
+      expect(sun.bearing).toBeGreaterThanOrEqual(0);
+      expect(sun.bearing).toBeLessThan(360);
+      expect(sun.elevation).toBeGreaterThan(0);
+      expect(sun.elevation).toBeLessThanOrEqual(90);
+      if (sun.shadows !== undefined) {
+        expect(sun.shadows).toBeGreaterThanOrEqual(0);
+        expect(sun.shadows).toBeLessThanOrEqual(1);
+      }
+    });
+
   it.each(sites.filter(site => site.environment).map(site => [site.id, site] as const))(
     '%s has its terrain and sky in the R2 bucket', (_, site) => {
       const environment = site.environment!;
@@ -61,6 +74,10 @@ describe('landmarks.json', () => {
       if (environment.skyUrl !== undefined) {
         expect(isBucketPath(environment.skyUrl), environment.skyUrl).toBe(true);
         expect(environment.skyUrl).toMatch(/\.(jpe?g|png|webp)$/i);
+      }
+      if (environment.scrubUrl !== undefined) {
+        expect(isBucketPath(environment.scrubUrl), environment.scrubUrl).toBe(true);
+        expect(environment.scrubUrl).toMatch(/\.json$/);
       }
       if (environment.background !== undefined) expect(environment.background).toMatch(/^#[0-9a-f]{6}$/i);
     });

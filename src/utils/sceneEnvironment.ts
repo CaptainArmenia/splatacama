@@ -25,6 +25,13 @@ const TERRAIN_DETAIL_HEADER = `
   uniform float detailPeriod;
   uniform vec3 detailSea;
   uniform float detailBloom;
+  uniform sampler2D scrubMap;
+  uniform vec4 scrubInfo;
+  uniform vec3 scrubGain;
+  uniform vec3 scrubNear;
+  uniform vec2 scrubReach;
+  uniform sampler2D scrubGrain;
+  uniform float scrubGrainPeriod;
   varying vec3 vTerrainPosition;
   float detailHash(vec2 i) { return fract(sin(dot(i, vec2(127.1, 311.7))) * 43758.5453); }
   float detailNoise(vec2 p) {
@@ -36,6 +43,13 @@ const TERRAIN_DETAIL_HEADER = `
 // The texture holds colour over its mean, halved, so mipmaps fade it to no change far off. Two samplings at different
 // scales and angles, chosen by smooth noise (keeping the contrast where they blend), hide its repeats. Steep slopes
 // get none, since it is projected from above and would streak there.
+// Scrub (scrubMap, see effects/scrub.ts): the plants that stand on the land near the site, seen from above, and
+// their shadows, as a tiling map of what's left of the ground's light (scrubInfo: its period in metres, where it
+// fades in from the site's centre in viewer units, and its strength). Far off it is divided by its mean (scrubGain),
+// so the land there, where the map blurs to its mean, is unchanged. At the splat's edge it is scaled instead so its
+// bare ground has the colour of the splat's own (scrubNear), easing to the other over scrubReach (viewer units):
+// from close by one looks down on the sand between the plants, which far off hide it. A second, much smaller tile
+// (scrubGrain, its period in metres) is the pebbles seen from up close, divided by its own mean.
 // Desierto florido (detailBloom): drifts of flowers in the colours of the splat's own (see desertBloom.ts) cover the
 // land out to a few kilometres, thinning into the haze the colours have baked in (env_build.py --haze-km 8).
 const TERRAIN_DETAIL_FRAGMENT = `{
@@ -51,7 +65,16 @@ const TERRAIN_DETAIL_FRAGMENT = `{
     vec3 b = texture2D(detailMap, mat2(0.6, 0.8, -0.8, 0.6) * p * 0.73 + vec2(0.37, 0.61)).rgb * 2.0 - 1.0;
     float w = smoothstep(0.25, 0.75, detailNoise(p * 2.3));
     vec3 d = (a * (1.0 - w) + b * w) / sqrt((1.0 - w) * (1.0 - w) + w * w);
-    diffuseColor.rgb *= max(1.0 + d * k, 0.0);
+    // Where the scrub map draws the bushes, the detail's own blotches of them step back
+    float ks = smoothstep(scrubInfo.y, scrubInfo.z, r) * land * level * scrubInfo.w;
+    diffuseColor.rgb *= max(1.0 + d * k * (1.0 - 0.7 * ks), 0.0);
+    if (ks > 0.0) {
+      vec2 sm = vec2(vTerrainPosition.x, -vTerrainPosition.z) / (detailSea.y * scrubInfo.x);
+      vec3 gain = mix(scrubNear, scrubGain, smoothstep(scrubReach.x, scrubReach.y, r));
+      diffuseColor.rgb *= mix(vec3(1.0), texture2D(scrubMap, sm).rgb * gain, ks);
+      vec2 sg = sm * scrubInfo.x / scrubGrainPeriod;
+      diffuseColor.rgb *= mix(vec3(1.0), texture2D(scrubGrain, sg).rgb / texture2D(scrubGrain, sg, 12.0).rgb, 0.6 * ks);
+    }
     if (detailBloom > 0.0) {
       vec2 q = vTerrainPosition.xz / (detailSea.y * 40.0);
       float cover = smoothstep(0.42, 0.7, 0.65 * detailNoise(q) + 0.35 * detailNoise(q * 3.7 + 5.0));
@@ -64,7 +87,8 @@ const TERRAIN_DETAIL_FRAGMENT = `{
   }`;
 
 // Multiplies the detail texture over a terrain material's colours (the meshes' positions are in the viewer's frame)
-function addTerrainDetail(material: any, texture: any, detail: TerrainDetail, anisotropy: number, bloom: { value: number }) {
+function addTerrainDetail(material: any, texture: any, detail: TerrainDetail, anisotropy: number, bloom: { value: number },
+  scrub: TerrainScrub) {
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   texture.anisotropy = anisotropy;
   material.userData.detailMap = texture;
@@ -77,6 +101,13 @@ function addTerrainDetail(material: any, texture: any, detail: TerrainDetail, an
       value: new THREE.Vector3(detail.seaZ ?? -1e6, detail.unitsPerMetre ?? 1, detail.earthRadius ?? 6.4e6),
     };
     shader.uniforms.detailBloom = bloom;
+    shader.uniforms.scrubMap = scrub.map;
+    shader.uniforms.scrubInfo = scrub.info;
+    shader.uniforms.scrubGain = scrub.gain;
+    shader.uniforms.scrubNear = scrub.near;
+    shader.uniforms.scrubReach = scrub.reach;
+    shader.uniforms.scrubGrain = scrub.grain;
+    shader.uniforms.scrubGrainPeriod = scrub.grainPeriod;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vTerrainPosition;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvTerrainPosition = position;');
@@ -101,6 +132,17 @@ export function disposeObject(root: THREE.Object3D) {
   });
 }
 
+// The terrain shader's scrub uniforms; effects/scrub.ts fills them in
+export type TerrainScrub = {
+  map: { value: THREE.Texture };
+  info: { value: THREE.Vector4 };
+  gain: { value: THREE.Vector3 };
+  near: { value: THREE.Vector3 };
+  reach: { value: THREE.Vector2 };
+  grain: { value: THREE.Texture };
+  grainPeriod: { value: number };
+};
+
 export type LoadedEnvironment = {
   // Terrain and sky, in the viewer's frame
   group: THREE.Group;
@@ -109,6 +151,7 @@ export type LoadedEnvironment = {
   sky: THREE.Mesh | null;
   // 0 to 1: how much of the land the desierto florido covers
   bloom: { value: number };
+  scrub: TerrainScrub;
   dispose: () => void;
 };
 
@@ -129,6 +172,17 @@ export async function loadSceneEnvironment(
   const group = new THREE.Group();
   group.name = 'scene-environment';
   const bloom = { value: 0 };
+  const blank = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+  blank.needsUpdate = true;
+  const scrub: TerrainScrub = {
+    map: { value: blank },
+    info: { value: new THREE.Vector4(1, 0, 1, 0) },
+    gain: { value: new THREE.Vector3(1, 1, 1) },
+    near: { value: new THREE.Vector3(1, 1, 1) },
+    reach: { value: new THREE.Vector2(0, 1) },
+    grain: { value: blank },
+    grainPeriod: { value: 1 },
+  };
 
   let sky: THREE.Mesh | null = null;
   if (skyTexture) {
@@ -145,7 +199,10 @@ export async function loadSceneEnvironment(
     // Centred on the camera, wherever the scene is in the world (VR turns and scales it)
     const cameraPosition = new THREE.Vector3();
     skyMesh.onBeforeRender = (_renderer, _scene, camera) => {
-      camera.getWorldPosition(cameraPosition);
+      // Read matrixWorld as it is: in VR, `camera` is an eye whose matrixWorld three.js has already set to include
+      // the rig. getWorldPosition would recompute it from the eye's pose alone, and everything drawn after the sky,
+      // splats included, would be seen from the room's origin instead of where the visitor has walked.
+      cameraPosition.setFromMatrixPosition(camera.matrixWorld);
       skyMesh.position.copy(skyMesh.parent ? skyMesh.parent.worldToLocal(cameraPosition) : cameraPosition);
       skyMesh.updateMatrixWorld();
     };
@@ -169,11 +226,17 @@ export async function loadSceneEnvironment(
     const detail: TerrainDetail | undefined = object.material.userData.detail;
     if (detail) {
       details.push(gltf.parser.getDependency('texture', detail.texture)
-        .then((texture: any) => addTerrainDetail(object.material, texture, detail, anisotropy, bloom)));
+        .then((texture: any) => addTerrainDetail(object.material, texture, detail, anisotropy, bloom, scrub)));
     }
   });
   await Promise.all(details);
   group.add(gltf.scene);
 
-  return { group, terrain, sky, bloom, dispose: () => disposeObject(group) };
+  return {
+    group, terrain, sky, bloom, scrub,
+    dispose: () => {
+      blank.dispose();
+      disposeObject(group);
+    },
+  };
 }

@@ -9,7 +9,7 @@ The current sites are *pircas*: circular dry-stone structures from before the Sp
 | Route | What it shows |
 | --- | --- |
 | `/` | CesiumJS globe with world terrain and satellite imagery. Each site is a round pin made from its preview photo. Clicking a pin opens an info panel with a **Ver Escena 3D** ("view 3D scene") button. |
-| `/scene/[id]` | Full-screen Gaussian splat viewer (three.js with [Spark](https://sparkjs.dev/)) for that site, with a back-to-map button, a toggleable info panel, a wind sound, and an **Efectos** panel: the real night sky over the site, the camanchaca (coastal fog), the desierto florido (flowering desert) and an earthquake. Pirca 1–3 are drawn with the terrain around them out to the horizon. On a VR headset it adds a **Ver en VR** button for walking through the site at real size. |
+| `/scene/[id]` | Full-screen Gaussian splat viewer (three.js with [Spark](https://sparkjs.dev/)) for that site, with a back-to-map button, a toggleable info panel, a wind sound, and an **Efectos** panel: the real night sky over the site, the camanchaca (coastal fog), the desierto florido (flowering desert) and an earthquake. Every site is drawn with the terrain around it out to the horizon, strewn near the site with its own plants and stones. On a VR headset it adds a **Ver en VR** button for walking through the site at real size. |
 
 Site data lives in [src/data/landmarks.json](src/data/landmarks.json). Large assets (the `.splat` files, terrain, skies and preview JPEGs) live in a Cloudflare R2 bucket, not in this repo. The app builds each asset URL from `NEXT_PUBLIC_R2_PUBLIC_DOMAIN` and the file name in the JSON, and the browser downloads them straight from the bucket. Every page is static; there's no server code.
 
@@ -62,9 +62,9 @@ The unit tests cover asset URLs, pin clustering, and the site data (`landmarks.j
 
 ## Adding or editing a site
 
-The `.splat` files, terrain and skies come from the splat pipeline, which lives outside this repo (`~/datasets/pircas-work` on the machine that built the scenes; its README covers every step). For a drone capture it writes three files per site: `<id>_center.splat` (the splat, cropped to the site), `<id>_terrain.glb` and `<id>_sky.jpg`, and prints the values for `landmarks.json`.
+The `.splat` files, terrain and skies come from the splat pipeline, which lives outside this repo (`~/datasets/pircas-work` on the machine that built the scenes; its README covers every step). For a drone capture it writes these files per site: `<id>_center.splat` (the splat, cropped to the site), `<id>_terrain.glb`, `<id>_sky.jpg`, and `<id>_scrub.json` with its atlas `<id>_scrub.webp` (the plants and stones around the site, cut out of its photos), and prints the values for `landmarks.json`.
 
-1. Upload the scene files, a preview JPEG and a small square thumbnail (about 160 px) to the root of the R2 bucket.
+1. Upload the scene files, a preview JPEG and a small square thumbnail (about 160 px) to the root of the R2 bucket. The pipeline's `upload_r2.py` does it (with a key for this bucket kept outside the repo). It won't overwrite a file the bucket already has with other content, because the live site loads files by name: give a rebuilt file a new name (`pirca11_center_v2.splat`) and switch `landmarks.json` to it in the same commit, so the live site changes only when that commit is deployed.
 2. Add an entry to [src/data/landmarks.json](src/data/landmarks.json):
 
    ```json
@@ -80,10 +80,12 @@ The `.splat` files, terrain and skies come from the splat pipeline, which lives 
      "gsplatUrl": "pirca14_center.splat",
      "previewUrl": "pirca14_preview.jpg",
      "thumbnailUrl": "pirca14_thumb.jpg",
+     "sun": { "bearing": 35, "elevation": 48, "shadows": 0.35 },
      "view": { "maxDistance": 11, "radius": 14.8 },
      "environment": {
        "terrainUrl": "pirca14_terrain.glb",
        "skyUrl": "pirca14_sky.jpg",
+       "scrubUrl": "pirca14_scrub.json",
        "background": "#b4c5d2",
        "far": 20000
      }
@@ -96,6 +98,8 @@ The `.splat` files, terrain and skies come from the splat pipeline, which lives 
    - `metersPerUnit` is the site's real size: meters per splat viewer unit. The pipeline scales each site so its main structure is 8 units across, so this is the structure's diameter in meters divided by 8. VR and the effects need it.
    - `view` limits the camera, in viewer units: `maxDistance` is how far it may zoom out, and `radius` how far from the site's centre it may go (the pipeline prints it: where the cropped splat starts to fade). Without it the viewer uses 14 and 14.
    - `environment` is the terrain and sky around a cropped splat; `background` is the haze colour the pipeline prints. Leave it out for a splat that isn't cropped.
+   - `environment.scrubUrl` is the plants and stones scattered on the terrain around the site: a small JSON file the pipeline's `scrub_atlas.py` writes, naming an atlas image cut out of the site's photos, which goes next to it in the bucket. Without it the terrain is bare.
+   - `sun` is where the sun stood in the site's photos (`bearing` from north and `elevation`, degrees, from the pipeline's `sun_position.py`) and how hard its shadows were (`shadows`, 1 under a clear sky, about 0.35 under cloud). The plants' shadows and the light on the site's people follow it. Without it they get pirca0's early-afternoon sun.
    - `gsplatUrl`, `previewUrl`, `thumbnailUrl` and the environment's URLs are paths inside the bucket. The app also accepts a full URL, which is handy for testing a local file, but `pnpm test` rejects one in a committed site.
    - `previewUrl` is shown in the info panels. `thumbnailUrl` is drawn on the map pin; if it's missing or fails to load, the pin uses the preview.
 
@@ -109,7 +113,7 @@ To try scene files before uploading them, put them in `public/local-splats/` (gi
 
 A site can have people walking it: `npcs` in its `landmarks.json` entry, each with a `name`, a `model` (a `.glb` in the bucket) and the `walkSpeed` of the model's walk animation (metres a second at its own speed). [src/effects/npc.ts](src/effects/npc.ts) finds the ground she can walk (open, gently sloping, clear of the walls and bushes the site analysis found, on the splat's own ground) and has her wander it: to a spot, often by the walls, at her own unhurried pace, then standing a while to look around, mostly at the site or the visitor. When the visitor is near and in front of her (within 5 m), she turns her head to look at them, walking or standing. The walk's playback follows her speed, so her feet don't slide.
 
-The characters are inspired by members of the Chango families of these sites, with their OK; pirca0 has Doña Estermila Álvarez Hidalgo, the families' matriarch, close to 90. They're built outside the repo, in `~/datasets/pircas-work/npc/` (its README): a MakeHuman body and clothes in Blender, and CMU motion capture moved onto it.
+The characters are inspired by members of the Chango families of these sites, and go on the live site only with their OK. The first, Doña Estermila Álvarez Hidalgo, the families' matriarch, close to 90, was made for pirca0 and is waiting for that OK: she's in no `landmarks.json` entry and her model isn't in the bucket. To try her locally, add `"npcs": [{ "name": "Doña Estermila", "model": "http://localhost:<port>/local-splats/npc_estermila.glb", "walkSpeed": 0.289 }]` to pirca0's entry without committing it. They're built outside the repo, in `~/datasets/pircas-work/npc/` (its README): a MakeHuman body and clothes in Blender, and CMU motion capture moved onto it.
 
 ### Wind turbines
 

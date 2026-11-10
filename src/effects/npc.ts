@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import type { Daylight } from '@/effects/daylight';
 import type { SiteAnalysis } from '@/effects/siteAnalysis';
 import type { SceneNpc } from '@/types/cesium';
 import { assetUrl } from '@/utils/assetUrl';
@@ -48,7 +49,9 @@ const between = ([a, b]: readonly [number, number]) => a + Math.random() * (b - 
 export type Npc = {
   /** Call every frame: `camera` is the visitor's eye in the metric frame */
   update: (deltaSeconds: number, camera: THREE.Vector3) => void;
-  setNight: (night: boolean) => void;
+  /** Where she stands and the top of her head (metric frame), for her shadow on the splats */
+  feet: THREE.Vector3;
+  head: THREE.Vector3;
   dispose: () => void;
 };
 
@@ -250,10 +253,10 @@ function findPath(g: Grid, from: THREE.Vector2, to: number): THREE.Vector2[] | n
 
 /**
  * Loads `npc.model` and sets her walking in `parent` (the metric frame). `radius` (metres) bounds where she goes:
- * within the splat's detailed ground. `scene` is checked for lights: without any, she brings her own.
+ * within the splat's detailed ground. `daylight` lights her and casts her shadow on the splats.
  */
 export async function createNpc(npc: SceneNpc, parent: THREE.Object3D, analysis: SiteAnalysis, radius: number,
-  scene: THREE.Scene): Promise<Npc> {
+  daylight: Daylight): Promise<Npc> {
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   const gltf = await loader.loadAsync(assetUrl(npc.model));
   const body = gltf.scene;
@@ -269,25 +272,18 @@ export async function createNpc(npc: SceneNpc, parent: THREE.Object3D, analysis:
         material.alphaTest = 0.5;
         material.depthWrite = true;
       }
+      // Cloth and skin, not plastic: the exported shoes shine like patent leather
+      const standard = material as THREE.MeshStandardMaterial;
+      if (standard.roughness !== undefined) standard.roughness = Math.max(standard.roughness, 0.75);
+      daylight.light(material);
     }
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
   });
   const group = new THREE.Group();
   group.name = `npc-${npc.name}`;
   group.add(body);
   parent.add(group);
-
-  // Light, if the scene has none (the wind turbines bring the sun and sky light where there are any)
-  let hasLight = false;
-  scene.traverse(object => {
-    if ((object as THREE.Light).isLight) hasLight = true;
-  });
-  const lights: THREE.Light[] = [];
-  if (!hasLight) {
-    const sun = new THREE.DirectionalLight('#fffaf2', 3);
-    sun.position.set(0.3, 1, -0.4);
-    lights.push(sun, new THREE.HemisphereLight('#c8def8', '#8a857d', 2));
-    group.add(...lights);
-  }
 
   const mixer = new THREE.AnimationMixer(body);
   const clip = (name: string) => gltf.animations.find(a => a.name === name) ?? gltf.animations[0];
@@ -372,6 +368,8 @@ export async function createNpc(npc: SceneNpc, parent: THREE.Object3D, analysis:
     face.applyQuaternion(inBody.invert());
   }
   let look = 0;
+  const feet = new THREE.Vector3(0, -1000, 0);
+  const top = new THREE.Vector3(0, -999, 0);
   const headAt = new THREE.Vector3();
   const want = new THREE.Vector3();
   const now = new THREE.Vector3();
@@ -482,10 +480,14 @@ export async function createNpc(npc: SceneNpc, parent: THREE.Object3D, analysis:
       walk.timeScale = stepping && speed < 0.05 ? 0.55 : Math.max(speed / npc.walkSpeed, 0.3);
       mixer.update(dt);
       lookAtVisitor(dt, camera);
+      feet.copy(group.position);
+      if (head) parent.worldToLocal(head.getWorldPosition(top));
+      else top.copy(feet).setY(feet.y + 1.5);
+      top.y += 0.08;
+      daylight.follow(feet, top.y - feet.y);
     },
-    setNight(night) {
-      for (const light of lights) light.intensity = night ? 0.03 : light instanceof THREE.DirectionalLight ? 3 : 2;
-    },
+    feet,
+    head: top,
     dispose() {
       mixer.stopAllAction();
       group.removeFromParent();

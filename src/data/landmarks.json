@@ -11,6 +11,10 @@
     "gsplatUrl": "pirca0_center.splat",
     "previewUrl": "pirca0_preview.jpg",
     "thumbnailUrl": "pirca0_thumb.jpg",
+    "sun": {
+      "bearing": 346,
+      "elevation": 53
+    },
     "view": {
       "maxDistance": 9.5,
       "radius": 7
@@ -18,12 +22,10 @@
     "environment": {
       "terrainUrl": "pirca0_terrain.glb",
       "skyUrl": "pirca0_sky.jpg",
+      "scrubUrl": "pirca0_scrub.json",
       "background": "#a9d7f8",
       "far": 20000
-    },
-    "npcs": [
-      { "name": "Doña Estermila", "model": "npc_estermila.glb", "walkSpeed": 0.289 }
-    ]
+    }
   },
   {
     "id": "pirca11",
@@ -34,16 +36,22 @@
     "heading": -42.3,
     "metersPerUnit": 1.5,
     "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
-    "gsplatUrl": "pirca11_center.splat",
+    "gsplatUrl": "pirca11_center_v2.splat",
     "previewUrl": "pirca11_preview.jpg",
     "thumbnailUrl": "pirca11_thumb.jpg",
+    "sun": {
+      "bearing": 4,
+      "elevation": 54,
+      "shadows": 0.35
+    },
     "view": {
       "maxDistance": 15,
       "radius": 7
     },
     "environment": {
-      "terrainUrl": "pirca11_terrain.glb",
+      "terrainUrl": "pirca11_terrain_v2.glb",
       "skyUrl": "pirca11_sky.jpg",
+      "scrubUrl": "pirca11_scrub.json",
       "background": "#e8f2f6",
       "far": 20000
     }
@@ -57,16 +65,22 @@
     "heading": -35.5,
     "metersPerUnit": 1.375,
     "description": "Ubicada en el árido paisaje costero del desierto de Atacama, esta pirca circular de piedra seca, construida sin argamasa mediante la superposición manual de rocas, habría servido como vivienda temporal, refugio o corral asociado a rutas de tránsito o actividades extractivas prehispánicas.",
-    "gsplatUrl": "pirca12_center.splat",
+    "gsplatUrl": "pirca12_center_v2.splat",
     "previewUrl": "pirca12_preview.jpg",
     "thumbnailUrl": "pirca12_thumb.jpg",
+    "sun": {
+      "bearing": 10,
+      "elevation": 54,
+      "shadows": 0.35
+    },
     "view": {
       "maxDistance": 18,
       "radius": 11.6
     },
     "environment": {
-      "terrainUrl": "pirca12_terrain.glb",
+      "terrainUrl": "pirca12_terrain_v2.glb",
       "skyUrl": "pirca12_sky.jpg",
+      "scrubUrl": "pirca12_scrub.json",
       "background": "#dfe8ed",
       "far": 20000
     }
@@ -83,6 +97,11 @@
     "gsplatUrl": "pirca13_center.splat",
     "previewUrl": "pirca13_preview.jpg",
     "thumbnailUrl": "pirca13_thumb.jpg",
+    "sun": {
+      "bearing": 35,
+      "elevation": 48,
+      "shadows": 0.35
+    },
     "view": {
       "maxDistance": 11,
       "radius": 14.8
@@ -90,6 +109,7 @@
     "environment": {
       "terrainUrl": "pirca13_terrain.glb",
       "skyUrl": "pirca13_sky.jpg",
+      "scrubUrl": "pirca13_scrub.json",
       "background": "#b4c5d2",
       "far": 20000
     }

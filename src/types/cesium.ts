@@ -17,12 +17,23 @@ export interface MapLandmark {
   // 8 units across, so this is the structure's diameter / 8. VR shows the scene at real size with it, and the effects
   // (flowers, fog, earthquake) are built in metres.
   metersPerUnit: number;
+  // The sun of the site's photos, for the shadows of its people and of the plants around it
+  sun?: SiteSun;
   // How far the splat viewer's camera may go; unset fields use the viewer's defaults
   view?: SceneView;
   // Terrain and sky drawn around the splat, for a splat cropped to the site
   environment?: SceneEnvironment;
   // People who walk the site (src/effects/npc.ts)
   npcs?: SceneNpc[];
+}
+
+// Where the sun stood when a site was photographed: its compass bearing and its elevation, in degrees (the splat
+// pipeline's sun_position.py works them out from the photos' time and place), and how hard its shadows were: 1 under
+// a clear sky (the default), toward 0 under cloud.
+export interface SiteSun {
+  bearing: number;
+  elevation: number;
+  shadows?: number;
 }
 
 // A person who walks a site: a rigged glTF character with "walk" and "idle" animations, made by the pipeline's npc
@@ -56,6 +67,9 @@ export interface SceneEnvironment {
   terrainUrl: string;
   // Equirectangular sky for a sphere around the camera, drawn behind everything
   skyUrl?: string;
+  // The site's plants for the land around it: a JSON file naming their atlas image, which lies next to it, and each
+  // kind's size (see src/effects/scrub.ts; the pipeline's scrub_atlas.py cuts them out of the site's photos)
+  scrubUrl?: string;
   // The haze colour the terrain fades to at the horizon, also drawn behind everything
   background?: string;
   // Camera far plane (viewer units), for terrain reaching the horizon; the default is 1000

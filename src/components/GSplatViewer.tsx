@@ -116,7 +116,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   // What the viewer is built from, as a string, so new but equal objects don't restart it
   const sceneKey = JSON.stringify({
     url: site.gsplatUrl, view: site.view, environment: site.environment, turbines, npcs: site.npcs,
-    lat: site.lat, lng: site.lng, heading: site.heading, metersPerUnit: site.metersPerUnit,
+    lat: site.lat, lng: site.lng, heading: site.heading, metersPerUnit: site.metersPerUnit, sun: site.sun,
   });
 
   // Keep the latest onError without making it restart the viewer
@@ -171,7 +171,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const { url, view, environment: env, turbines: turbineConfig, npcs, lat, lng, heading, metersPerUnit } = JSON.parse(sceneKey);
+    const { url, view, environment: env, turbines: turbineConfig, npcs, lat, lng, heading, metersPerUnit, sun } = JSON.parse(sceneKey);
     const limits = { ...DEFAULT_VIEW, ...view };
     const background = new THREE.Color(env?.background ?? backgroundColor);
     const far = env?.far ?? DEFAULT_FAR;
@@ -361,9 +361,9 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
 
         effects = await createSceneEffects({
           world, scene, renderer, splat: mesh, file, analysis: siteAnalysis, environment, turbines: windTurbines,
-          site: { lat, lng, heading, metersPerUnit },
+          site: { lat, lng, heading, metersPerUnit, sun },
           splatRadius: limits.radius * metersPerUnit,
-          background, far, npcs,
+          background, far, npcs, scrubUrl: env?.scrubUrl,
         });
         if (cancelled) {
           effects.dispose();

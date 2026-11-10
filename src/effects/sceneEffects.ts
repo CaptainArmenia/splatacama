@@ -10,13 +10,15 @@
 import * as THREE from 'three';
 import { dyno, SplatFileType, SplatMesh } from '@sparkjsdev/spark';
 import { createCamanchaca, type Camanchaca } from '@/effects/camanchaca';
+import { createDaylight, createSplatShadow, sunDirection, type Daylight } from '@/effects/daylight';
+import { loadScrub, type Scrub } from '@/effects/scrub';
 import { createDesertBloom, type DesertBloom } from '@/effects/desertBloom';
 import type { Earthquake } from '@/effects/earthquake';
 import { createNightSky, type NightSky } from '@/effects/nightSky';
 import { selectSplats, type ParsedSplat, type SiteAnalysis } from '@/effects/siteAnalysis';
 import type { LoadedEnvironment } from '@/utils/sceneEnvironment';
 import { createNpc, type Npc } from '@/effects/npc';
-import type { SceneNpc } from '@/types/cesium';
+import type { SceneNpc, SiteSun } from '@/types/cesium';
 import type { WindTurbines } from '@/utils/windTurbines';
 
 const NIGHT = {
@@ -52,11 +54,13 @@ export type SceneEffectsOptions = {
   // The scene's main splat mesh (in the .splat file's frame, inside `world`), and the file it came from
   splat: SplatMesh;
   file: ParsedSplat;
-  site: { lat: number; lng: number; heading: number; metersPerUnit: number };
+  site: { lat: number; lng: number; heading: number; metersPerUnit: number; sun?: SiteSun };
   analysis: SiteAnalysis;
   // Metres from the site centre where the splat starts to fade (its crop), or the edge of its detail
   splatRadius: number;
   environment: LoadedEnvironment | null;
+  // The plants of the land around the site (SceneEnvironment.scrubUrl)
+  scrubUrl?: string;
   turbines: WindTurbines | null;
   // The page background by day
   background: THREE.Color;
@@ -82,10 +86,11 @@ export type SceneEffects = {
 // Hides the splats far from the site (by `hide`, 0 to 1), in the .splat file's frame: at night and in fog they
 // would show daytime sky. A cropped splat with terrain only keeps a dome of sky splats far out (crop_center.py); a
 // full splat has its sky on a shell a few dozen metres out, above the horizon, and smears beyond.
-function farSplatModifier(hide: any, metersPerFileUnit: number, cropped: boolean) {
+// People standing on the site darken the splats in their shadow (`shadow`, from createSplatShadow).
+function siteSplatModifier(hide: any, shadow: ReturnType<typeof createSplatShadow>, metersPerFileUnit: number, cropped: boolean) {
   return dyno.dynoBlock({ gsplat: dyno.Gsplat }, { gsplat: dyno.Gsplat }, ({ gsplat }: any) => {
     const d = new dyno.Dyno({
-      inTypes: { gsplat: dyno.Gsplat, hide: 'float' },
+      inTypes: { gsplat: dyno.Gsplat, hide: 'float', from: 'vec3', to: 'vec3', sun: 'vec3', strength: 'float' },
       outTypes: { gsplat: dyno.Gsplat },
       statements: ({ inputs, outputs }: any) => dyno.unindentLines(`
         ${outputs.gsplat} = ${inputs.gsplat};
@@ -95,9 +100,10 @@ function farSplatModifier(hide: any, metersPerFileUnit: number, cropped: boolean
           ? 'float sky = smoothstep(300.0, 600.0, far);'
           : 'float sky = max(smoothstep(20.0, 35.0, far) * smoothstep(0.0, 0.04, -c.y / max(far, 1.0)), smoothstep(120.0, 200.0, far));'}
         ${outputs.gsplat}.rgba.a *= 1.0 - ${inputs.hide} * sky;
+        ${shadow.glsl(outputs.gsplat, inputs, metersPerFileUnit.toFixed(4))}
       `),
     });
-    return { gsplat: d.apply({ gsplat, hide }).gsplat };
+    return { gsplat: d.apply({ gsplat, hide, ...shadow.uniforms }).gsplat };
   });
 }
 
@@ -121,8 +127,12 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
   // Splat meshes from the site's .splat file (the main one, and the walls' while the earthquake has them), which
   // night recolours and night and fog thin out far away
   const hideFar = dyno.dynoFloat(0);
+  // The light the site's people stand in, and their shadows on the splats
+  const daylight: Daylight | null = options.npcs?.length ? createDaylight(scene, metric, renderer, analysis, compass, site.sun) : null;
+  const shadow = createSplatShadow(daylight?.sun ?? new THREE.Vector3(0, 1, 0));
+  const shadowAt = new THREE.Vector3(0, -1000, 0);
   const prepareSplat = (mesh: SplatMesh) => {
-    mesh.objectModifier = farSplatModifier(hideFar, file.scale, !!environment);
+    mesh.objectModifier = siteSplatModifier(hideFar, shadow, file.scale, !!environment);
     mesh.updateGenerator();
   };
   prepareSplat(splat);
@@ -138,8 +148,26 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
   // People walking the site, on the splat's ground; they appear when their model has loaded
   const npcs: Npc[] = [];
   let disposed = false;
+
+  // The plants of the land around, on the terrain; they appear when their atlas has loaded
+  let scrub: Scrub | null = null;
+  if (environment && options.scrubUrl) {
+    loadScrub(options.scrubUrl, environment, metric, analysis, daylight?.sun ?? sunDirection(compass, site.sun),
+      site.sun?.shadows ?? 1, site.metersPerUnit, renderer.capabilities.getMaxAnisotropy())
+      .then(loaded => {
+        if (disposed) {
+          loaded.dispose();
+          return;
+        }
+        scrub = loaded;
+        metric.add(loaded.mesh);
+        apply();
+      })
+      .catch(error => console.warn('Scrub failed to load', error));
+  }
+
   for (const spec of options.npcs ?? []) {
-    createNpc(spec, metric, analysis, options.splatRadius, scene)
+    createNpc(spec, metric, analysis, options.splatRadius, daylight!)
       .then(npc => {
         if (disposed) npc.dispose();
         else npcs.push(npc);
@@ -171,10 +199,14 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     }
     fog.mesh.recolor.copy(night ? NIGHT.fogTint : new THREE.Color(1, 1, 1));
     fog.mesh.updateVersion();
-    for (const mesh of environment?.terrain ?? []) (mesh.material as THREE.MeshBasicMaterial).color.copy(tint);
+    // The splats' colours are multiplied as they're stored, the meshes' as light: the same tint, decoded, for those
+    const landTint = tint.clone().convertSRGBToLinear();
+    for (const mesh of environment?.terrain ?? []) (mesh.material as THREE.MeshBasicMaterial).color.copy(landTint);
+    scrub?.setTint(landTint);
     if (environment?.sky) environment.sky.visible = !night && !fogOn;
     sky.group.visible = night;
-    for (const npc of npcs) npc.setNight(night);
+    daylight?.setNight(night);
+    shadow.uniforms.strength.value = night || fogOn || !npcs.length ? 0 : 1;
 
     const fogColor = night ? FOG.nightColor : FOG.color;
     turbines?.setConditions(night, fogOn ? fogColor : night ? NIGHT.background : null);
@@ -253,7 +285,16 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
       camera.getWorldPosition(metricCamera);
       fog.update(seconds, metric.worldToLocal(metricCamera));
       for (const npc of npcs) npc.update(deltaSeconds, metricCamera);
+      // Her shadow follows her: the splats are redrawn when she has moved a centimetre
+      if (npcs.length && !night && !fogOn && npcs[0].feet.distanceToSquared(shadowAt) > 1e-4) {
+        shadowAt.copy(npcs[0].feet);
+        shadow.uniforms.from.value.copy(npcs[0].feet).setY(npcs[0].feet.y + 0.1);
+        shadow.uniforms.to.value.copy(npcs[0].head).setY(npcs[0].head.y - 0.14);
+        shadow.uniforms.strength.value = 1;
+        for (const mesh of splatMeshes()) mesh.updateVersion();
+      }
       turbines?.update(seconds);
+      scrub?.update(seconds, metricCamera);
 
       if (bloom !== bloomTarget) {
         const step = deltaSeconds / (bloomTarget > bloom ? BLOOM_SECONDS : UNBLOOM_SECONDS);
@@ -274,6 +315,8 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     dispose() {
       disposed = true;
       for (const npc of npcs) npc.dispose();
+      daylight?.dispose();
+      scrub?.dispose();
       sky.dispose();
       fog.dispose();
       flowers.dispose();
