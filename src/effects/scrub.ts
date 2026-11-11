@@ -51,6 +51,9 @@ const SCRUB = {
   // line across the land.
   nearMost: 1.35,
   nearReach: 250,
+  // Nothing grows less than this far above the sea (metres): the terrain lies at sea level over the water, and the
+  // terrain shader's land starts here too. Sites by the shore (Pirka 9) had plants standing on the bay.
+  aboveSea: 1.5,
 };
 
 // A kind of plant (or stone) in the atlas: its size in metres, its share of the plants that stand apart, and its share
@@ -59,7 +62,8 @@ type Kind = { name: string; width: number; height: number; share: number; scatte
 // What scrub_atlas.py writes about a site's scrub: the atlas image (next to the JSON), the colour of the bare ground
 // at the splat's edge (sRGB bytes), the grid the plants are scattered on (metres), how many cells get a plant where
 // they grow thickest, strewn things and ground-only litter (twigs, stones and seedlings too small for a card) per
-// cell, and the plants' sizes against their kind's
+// cell, the plants' sizes against their kind's, and whether each plant is darkened to the land it stands on (for land
+// much darker than the splat's edge; see `shade` in loadScrub)
 type Description = {
   atlas: string;
   sand: number[];
@@ -69,6 +73,7 @@ type Description = {
   litter: number;
   size: [number, number];
   kinds: Kind[];
+  shade?: boolean;
 };
 type Plant = { x: number; z: number; kind: number; size: number; yaw: number };
 
@@ -389,6 +394,53 @@ function terrainHeights(meshes: THREE.Mesh[], metric: THREE.Object3D, half: numb
 
 // The terrain's own colour (linear) in a ring around the site, `from` to `to` metres from its centre: its texture
 // under the vertices there
+/**
+ * The terrain texture's colour (linear) averaged over square cells of `cell` metres out to `half` metres, in the
+ * metric frame: a function of (x, z) giving a cell's colour, or null where no vertex fell.
+ */
+function terrainColours(meshes: THREE.Mesh[], metric: THREE.Object3D, half: number, cell: number) {
+  const n = Math.ceil((2 * half) / cell);
+  const sums = new Float32Array(n * n * 4);
+  metric.updateWorldMatrix(true, false);
+  const inverse = metric.matrixWorld.clone().invert();
+  const toMetric = new THREE.Matrix4();
+  const v = new THREE.Vector3();
+  const linear = (byte: number) => ((byte / 255 + 0.055) / 1.055) ** 2.4;
+  const index = (x: number, z: number) => {
+    const i = Math.floor((x + half) / cell);
+    const k = Math.floor((z + half) / cell);
+    return i < 0 || k < 0 || i >= n || k >= n ? -1 : k * n + i;
+  };
+  for (const mesh of meshes) {
+    const map = (mesh.material as THREE.MeshBasicMaterial).map;
+    const position = mesh.geometry.attributes.position;
+    const uv = mesh.geometry.attributes.uv;
+    if (!map?.image || !uv) continue;
+    const side = 1024;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = side;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+    ctx.drawImage(map.image as CanvasImageSource, 0, 0, side, side);
+    const pixels = ctx.getImageData(0, 0, side, side).data;
+    mesh.updateWorldMatrix(true, false);
+    toMetric.multiplyMatrices(inverse, mesh.matrixWorld);
+    const wrap = (t: number) => Math.min(Math.floor((t - Math.floor(t)) * side), side - 1);
+    for (let i = 0; i < position.count; i++) {
+      v.fromBufferAttribute(position, i).applyMatrix4(toMetric);
+      const at = index(v.x, v.z);
+      if (at < 0) continue;
+      const px = 4 * ((map.flipY ? side - 1 - wrap(uv.getY(i)) : wrap(uv.getY(i))) * side + wrap(uv.getX(i)));
+      for (let c = 0; c < 3; c++) sums[4 * at + c] += linear(pixels[px + c]);
+      sums[4 * at + 3]++;
+    }
+  }
+  return (x: number, z: number) => {
+    const at = index(x, z);
+    const count = at < 0 ? 0 : sums[4 * at + 3];
+    return count ? [0, 1, 2].map(c => sums[4 * at + c] / count) : null;
+  };
+}
+
 function terrainColour(meshes: THREE.Mesh[], metric: THREE.Object3D, from: number, to: number) {
   metric.updateWorldMatrix(true, false);
   const inverse = metric.matrixWorld.clone().invert();
@@ -564,6 +616,10 @@ export async function loadScrub(
 
   // The tile's plants, repeated around the site
   const heightAt = terrainHeights(terrains, metric, Math.ceil(SCRUB.reach) + 2);
+  // The sea's height in the metric frame, from the terrain's detail description (env_build.py); none inland
+  const seaZ: number | undefined = terrains
+    .map(mesh => (mesh.material as any).userData?.detail?.seaZ)
+    .find(z => typeof z === 'number');
   const placed: { plant: Plant; x: number; y: number; z: number; size: number }[] = [];
   const tiles = Math.ceil(SCRUB.reach / SCRUB.tile);
   for (let tz = -tiles; tz < tiles; tz++) {
@@ -579,6 +635,7 @@ export async function loadScrub(
         const fade = 1 - THREE.MathUtils.smoothstep(distance, SCRUB.reach - SCRUB.thinOut, SCRUB.reach);
         const y = heightAt(x, z);
         if (random() >= fade || Number.isNaN(y)) continue;
+        if (seaZ !== undefined && y - seaZ < SCRUB.aboveSea) continue;
         placed.push({ plant, x, y, z, size: (0.6 + 0.4 * fade) * plant.size });
       }
     }
@@ -592,6 +649,21 @@ export async function loadScrub(
   const turn = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
   const colour = new THREE.Color();
+  // The plants were cut to the exposure of the bare ground at the splat's edge. Where the land is darker than that
+  // (grey shingle, a backlit slope; the second batch's coast), each is darkened to match the ground it stands on, as
+  // the terrain draws it there (its texture, the map's bare ground and the gain); bright cut-outs on dark ground read
+  // as confetti. They are never brightened. Only where the site's scrub JSON asks for it (`shade`): on the earlier
+  // sites' pale land it changed little, and darkened pirca0's far bushes, whose look was approved as it was.
+  const landColour = terrainColours(terrains, metric, SCRUB.reach + 8, 8);
+  const luma = (rgb: number[]) => 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+  const bare = luma(scrub.sand.map(linear));
+  const shade = (x: number, z: number) => {
+    const texel = landColour(x, z);
+    if (!scrub.shade || !texel || !bare) return 1;
+    const t = THREE.MathUtils.smoothstep(Math.hypot(x, z), edge, SCRUB.nearReach);
+    const drawn = [0, 1, 2].map(c => texel[c] * SCRUB.sand[c] * THREE.MathUtils.lerp(near[c], far[c], t));
+    return THREE.MathUtils.clamp(luma(drawn) / bare, 0.35, 1);
+  };
   placed.forEach(({ plant, x, y, z, size }, i) => {
     const kind = kinds[plant.kind];
     const height = kind.height * size;
@@ -599,7 +671,7 @@ export async function loadScrub(
       new THREE.Vector3(x, y - 0.04 * height, z), turn.setFromAxisAngle(up, plant.yaw),
       new THREE.Vector3((kind.width * size) / 2, height, (kind.width * size) / 2));
     mesh.setMatrixAt(i, matrix);
-    const light = 0.88 + 0.2 * random();
+    const light = (0.88 + 0.2 * random()) * shade(x, z);
     mesh.setColorAt(i, colour.setRGB(light * (1 + 0.04 * random()), light, light * (1 - 0.04 * random())));
     // The kind, and a half more for the plants drawn mirrored
     sprites[i] = plant.kind + (random() < 0.5 ? 0.5 : 0);
