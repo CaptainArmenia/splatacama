@@ -113,5 +113,33 @@
       "background": "#b4c5d2",
       "far": 20000
     }
+  },
+  {
+    "id": "pirca2-05",
+    "name": "Pirca",
+    "lat": -29.128279,
+    "lng": -71.484464,
+    "height": 30,
+    "heading": -145.5,
+    "metersPerUnit": 1.5,
+    "description": "Ubicada en la costa rocosa del desierto de Atacama, esta pirca de piedra seca, construida sin argamasa mediante la superposición manual de lajas, forma pequeños recintos junto a un afloramiento rocoso y habría servido como vivienda temporal, refugio o corral asociado a actividades costeras.",
+    "gsplatUrl": "pirca2-05_center.splat",
+    "previewUrl": "pirca2-05_preview.jpg",
+    "thumbnailUrl": "pirca2-05_thumb.jpg",
+    "sun": {
+      "bearing": 31,
+      "elevation": 73
+    },
+    "view": {
+      "maxDistance": 15,
+      "radius": 7
+    },
+    "environment": {
+      "terrainUrl": "pirca2-05_terrain.glb",
+      "skyUrl": "pirca2-05_sky.jpg",
+      "scrubUrl": "pirca2-05_scrub.json",
+      "background": "#dde6e9",
+      "far": 20000
+    }
   }
 ]
