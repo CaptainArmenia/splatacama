@@ -199,6 +199,12 @@ const GULLY_DEPTH = 2;
 // With the atmosphere, how much more sea air the far land is seen through, and over what distance (metres)
 const DEPTH_HAZE = 0.4;
 const DEPTH_HAZE_METRES = 4000;
+// The shoreline: the land's height above the sea where the still water ends (metres; above the heights the pipeline
+// squeezes toward sea level, so the baked colours there are the land's), how far a wave runs up the shore, and how
+// far out the sand shows through the water (metres along the ground)
+const SHORE_HEIGHT = 1.15;
+const SWASH_REACH = 2.5;
+const SHALLOW_METRES = 5;
 // Plants stand as cards out to about here (metres; effects/scrub.ts SCRUB.reach)
 const SCRUB_CARDS = 120;
 // Sea vertices further than this from the land (metres) count as this far, for the surf
@@ -213,7 +219,8 @@ const SURF_REACH = 200;
 // each fading out as it shrinks under a few pixels, what's lost becoming roughness), the sky reflected off them by
 // Fresnel, the sun's glitter, the water's own dark colour, and surf: crests running in to the shore and a band of
 // white water along it (vTerrainShore: metres from the land, and how much white water the satellite saw there),
-// and wet sand where the water meets the land.
+// and the shoreline itself: a sharp, moving water's edge with wet sand above it and the sand showing through the
+// shallows.
 const TERRAIN_LIGHT_FRAGMENT = `
     vec3 haze = diffuse * terrainAir * (1.0 - exp(-rm / ${HAZE_METRES.toFixed(1)}));
     vec3 slopeNormal = normalize(vTerrainNormal);
@@ -251,10 +258,25 @@ const TERRAIN_LIGHT_FRAGMENT = `
       slopeNormal = normalize(slopeNormal + vec3(-grad.x, 0.0, -grad.y));
       diffuseColor.rgb *= 1.0 - 0.14 * gullied * (seeWide * max(-wide.x, 0.0) + 0.5 * seeNarrow * max(-narrow.x, 0.0));
     }
-    // Wet sand and rock just above the water's reach, by height above the sea (not by distance along the mesh, whose
-    // triangles are tens of metres wide along the shore)
-    float wetShore = land * (1.0 - smoothstep(1.4, 2.6, aboveSea + 0.5 * (detailNoise(pm / 7.0) - 0.5)));
-    diffuseColor.rgb *= mix(vec3(1.0), vec3(0.72, 0.74, 0.78), wetShore);
+    // The shoreline. The mesh's shore is one row of triangles tens of metres wide, from a vertex at sea level to one
+    // on land, and blending water into land by height over it gave a smooth smear instead of a shore. Here the
+    // water's edge is a sharp line: where the land stands SHORE_HEIGHT above the sea, measured in metres along the
+    // ground (height over the smooth slope, so it is continuous across triangles), bent by noise so it isn't the
+    // mesh's polyline, and moved by the swash: every few seconds a wave runs a couple of metres up the shore and
+    // drains back, at its own moment along each stretch. Above it the sand is wet and dark as far as the waves reach.
+    float shoreSlope = max(length(smoothNormal.xz) / max(abs(smoothNormal.y), 0.05), 2e-3);
+    float shoreGentle = min(1.0, 0.25 / shoreSlope);
+    float fromShore = (aboveSea - ${SHORE_HEIGHT.toFixed(2)}) / shoreSlope
+      + shoreGentle * (10.0 * (detailNoise(pm / 55.0 + 4.0) - 0.5) + 4.0 * (detailNoise(pm / 14.0) - 0.5)
+        + 1.5 * (detailNoise(pm / 3.5 + 9.0) - 0.5));
+    float swashWave = fract(terrainTime / 9.0 + 2.0 * detailNoise(pm / 40.0));
+    float swash = swashWave < 0.25 ? smoothstep(0.0, 0.25, swashWave) : 1.0 - smoothstep(0.25, 1.0, swashWave);
+    float fromWater = fromShore - ${SWASH_REACH.toFixed(1)} * shoreGentle * swash;
+    float edgeBlur = max(0.75 * foot, 0.04);
+    float shoreLand = smoothstep(-edgeBlur, edgeBlur, fromWater);
+    float wetSand = 1.0 - smoothstep(${SWASH_REACH.toFixed(1)} * shoreGentle + 0.3, ${SWASH_REACH.toFixed(1)} * shoreGentle + 3.0,
+      fromShore + 1.5 * (detailNoise(pm / 6.0) - 0.5));
+    diffuseColor.rgb *= mix(vec3(1.0), vec3(0.6, 0.63, 0.68), wetSand);
     float sunUp = max(-terrainSun.y, 0.1);
     // With the atmosphere the sun's light is warm and the sky's cool
     vec3 sunColour = mix(vec3(1.0), vec3(1.07, 1.0, 0.9), terrainGlow);
@@ -293,7 +315,7 @@ const TERRAIN_LIGHT_FRAGMENT = `
     diffuseColor.rgb = haze * mix(vec3(1.0), hazeTint, land) + ground * transmit;
     diffuseColor.rgb = mix(diffuseColor.rgb, diffuse * terrainAir * hazeTint,
       land * terrainGlow * ${DEPTH_HAZE.toFixed(2)} * (1.0 - exp(-rm / ${DEPTH_HAZE_METRES.toFixed(1)})));
-    if (land < 1.0) {
+    if (shoreLand < 1.0) {
       // Patches of rougher and calmer water drift over the sea
       float gust = 0.6 + 0.8 * detailNoise(pm / 180.0 + terrainSwell * terrainTime * 0.01);
       // The waves: the sea's slopes (seaNormals) at four scales, each turned a little off the swell and drifting at
@@ -341,6 +363,9 @@ const TERRAIN_LIGHT_FRAGMENT = `
       // The water's own colour: turquoise over the rocks and sand by the shore, deep blue out from it
       float coast = vTerrainShore.x;
       vec3 body = mix(${SEA_SHALLOW}, terrainWater, smoothstep(2.0, 14.0, coast + 8.0 * (detailNoise(pm / 25.0) - 0.5)));
+      // At the edge the water is a few centimetres deep and the sand shows through it, wet and greenish, deepening
+      // into the water's own colour over a few metres
+      body = mix(diffuseColor.rgb * vec3(0.6, 0.78, 0.76), body, 1.0 - exp(-max(-fromWater, 0.0) / ${SHALLOW_METRES.toFixed(1)}));
       vec3 water = body * (1.0 - 0.3 * shadowed) * (1.0 - fresnel) + skyColour * fresnel
         + min(0.5 * glitter, 2.5) * (1.0 - shadowed);
       // White water where it would be: breaking waves where the satellite saw white water (reefs, points) and,
@@ -367,11 +392,16 @@ const TERRAIN_LIGHT_FRAGMENT = `
       float caps = 0.015 * smoothstep(0.85, 1.3, gust);
       float whitecaps = smoothstep(1.0 - caps, 1.0 - caps + 0.1, lace) * step(0.002, caps);
       float foam = mix(max(surf, whitecaps), 0.12 * breaking * openWater + 0.5 * caps, smoothstep(1.0, 5.0, foot));
+      // The swash's own foam: lace at the edge of the water while a wave runs up, gone as it drains; only from
+      // near enough to see it move (from far off it would be a still white line again)
+      float rushing = 1.0 - smoothstep(0.2, 0.45, swashWave);
+      foam = max(foam, 0.7 * rushing * (1.0 - smoothstep(0.0, 1.5, -fromWater)) * smoothstep(0.3, 0.6, lace)
+        * (1.0 - smoothstep(0.4, 1.2, foot)));
       // The water churned up inside the surf, a little milky
       water = mix(water, water * 0.85 + vec3(0.04, 0.05, 0.05), 0.4 * breaking * openWater * exp(-3.0 * behind));
       water = mix(water, vec3(0.7, 0.72, 0.72), 0.8 * clamp(foam, 0.0, 1.0));
       water = water * diffuse * exp(-rm / ${HAZE_METRES.toFixed(1)}) + haze * hazeTint;
-      diffuseColor.rgb = mix(water, diffuseColor.rgb, land);
+      diffuseColor.rgb = mix(water, diffuseColor.rgb, shoreLand);
     }
     // Bruma costera: thin mist lying low over the sea and the coast in banks that drift in with the wind and slowly
     // change shape, thicker the further one looks through it
