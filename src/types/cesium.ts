@@ -56,6 +56,12 @@ export interface SceneView {
   maxDistance?: number;
   // How far from the site's centre the camera may go, measured on the ground: about where the splat starts to fade
   radius?: number;
+  // For a site photographed only from high up, where the splat is blur and needles at eye level: the lowest the
+  // camera may look down at the site from, in degrees above the horizon. Such a site has no VR, which walks at eye
+  // level.
+  minElevation?: number;
+  // How close the camera may zoom in to the point it orbits (the default is 1)
+  minDistance?: number;
 }
 
 // Surroundings for a site whose splat covers only the site itself (the photos saw the ground farther out only

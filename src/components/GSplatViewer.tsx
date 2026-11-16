@@ -217,12 +217,29 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     controls.keys = { LEFT: 'KeyA', UP: 'KeyW', RIGHT: 'KeyD', BOTTOM: 'KeyS' };
     controls.listenToKeyEvents(window);
     controls.target.fromArray(INITIAL_CAMERA_LOOK_AT);
-    controls.minDistance = MIN_DISTANCE;
+    controls.minDistance = limits.minDistance ?? MIN_DISTANCE;
     controls.maxDistance = limits.maxDistance;
+    // The polar angle is measured from straight above the site (the controls follow camera.up); this also lifts the
+    // start camera and the reset button's to the lowest allowed angle
+    if (limits.minElevation) controls.maxPolarAngle = THREE.MathUtils.degToRad(90 - limits.minElevation);
     viewerRef.current = { camera, controls };
 
-    // Keep the camera inside the site's circle and above what's under it, and the orbit centre near the ground
+    // Keep the camera above what's under it; true if it had to move
     let analysis: SiteAnalysis | null = null;
+    const liftAboveGround = () => {
+      const position = camera.position;
+      // The site analysis is in metres with y up (see siteAnalysis.ts); before it's ready, the site's ground level
+      const x = position.x * metersPerUnit;
+      const z = -position.z * metersPerUnit;
+      const lowest = analysis
+        ? Math.max(analysis.groundAt(x, z) + EYE_HEIGHT, analysis.topAt(x, z) + CAMERA_CLEARANCE)
+        : EYE_HEIGHT;
+      const floor = -lowest / metersPerUnit;
+      if (position.y <= floor) return false;
+      position.y = floor;
+      return true;
+    };
+    // Keep the camera inside the site's circle and above what's under it, and the orbit centre near the ground
     const keepCameraInLimits = () => {
       const target = controls.target;
       const targetRadius = Math.hypot(target.x, target.z);
@@ -242,17 +259,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
         position.z *= scale;
         moved = true;
       }
-      // The site analysis is in metres with y up (see siteAnalysis.ts); before it's ready, the site's ground level
-      const x = position.x * metersPerUnit;
-      const z = -position.z * metersPerUnit;
-      const lowest = analysis
-        ? Math.max(analysis.groundAt(x, z) + EYE_HEIGHT, analysis.topAt(x, z) + CAMERA_CLEARANCE)
-        : EYE_HEIGHT;
-      const floor = -lowest / metersPerUnit;
-      if (position.y > floor) {
-        position.y = floor;
-        moved = true;
-      }
+      if (liftAboveGround()) moved = true;
       if (moved) camera.lookAt(target);
     };
     controls.addEventListener('change', keepCameraInLimits);
@@ -330,8 +337,9 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
         const metersPerFileUnit = metersPerUnit * SCENE_SCALE;
         const file = parseSplat(bytes, metersPerFileUnit);
         const siteAnalysis = analyzeSite(file, SITE_RADIUS_UNITS * metersPerUnit, (limits.radius + 2) * metersPerUnit);
-        // Where a visitor can walk in VR, read off the splats; only headsets need it
-        const walkArea = (await isVRSupported())
+        // Where a visitor can walk in VR, read off the splats; only headsets need it, and only at sites that hold up at
+        // eye level
+        const walkArea = (!limits.minElevation && await isVRSupported())
           ? buildWalkArea(bytes, metersPerFileUnit, { x: INITIAL_CAMERA_POSITION[0], z: -INITIAL_CAMERA_POSITION[2] },
             SITE_RADIUS_UNITS * metersPerUnit)
           : null;
@@ -353,6 +361,8 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
         }
         if (environment) world.add(environment.group);
         analysis = siteAnalysis;
+        // Lift the start camera out of the ground now that it's known: on a slope it can start below it
+        if (liftAboveGround()) camera.lookAt(controls.target);
 
         if (turbineConfig) {
           windTurbines = addWindTurbines(world, turbineConfig, heading, environment ? { haze: background } : null);
