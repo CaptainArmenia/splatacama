@@ -213,7 +213,7 @@ const SURF_REACH = 200;
 // each fading out as it shrinks under a few pixels, what's lost becoming roughness), the sky reflected off them by
 // Fresnel, the sun's glitter, the water's own dark colour, and surf: crests running in to the shore and a band of
 // white water along it (vTerrainShore: metres from the land, and how much white water the satellite saw there),
-// and a wash line and wet sand where the water meets the land.
+// and wet sand where the water meets the land.
 const TERRAIN_LIGHT_FRAGMENT = `
     vec3 haze = diffuse * terrainAir * (1.0 - exp(-rm / ${HAZE_METRES.toFixed(1)}));
     vec3 slopeNormal = normalize(vTerrainNormal);
@@ -345,7 +345,7 @@ const TERRAIN_LIGHT_FRAGMENT = `
         + min(0.5 * glitter, 2.5) * (1.0 - shadowed);
       // White water where it would be: breaking waves where the satellite saw white water (reefs, points) and,
       // gentler, along every shore -- lines running in parallel to the shore, each a bright front with foam trailing
-      // out behind it, thinning into lace (seaFoam) -- a thin wash where the water meets the land, and a few
+      // out behind it, thinning into lace (seaFoam) -- and a few
       // whitecaps out at sea where the wind gusts. Soft-edged and never quite opaque: hard white flakes over the
       // whole surf zone looked like broken ice. Far off, where a pixel spans a line, it blurs into its average.
       float lace = 0.6 * texture2D(seaFoam, pm / 11.0 + vec2(terrainTime * 0.012, 0.0)).r
@@ -361,24 +361,12 @@ const TERRAIN_LIGHT_FRAGMENT = `
       // they pulsed in place)
       float openWater = 1.0 - smoothstep(0.15, 0.3, aboveSea);
       float surf = smoothstep(0.3, 0.65, density) * openWater;
-      // The wash: a thin, broken line of foam where the water ends, running a metre or two up the shore and back,
-      // with a little lace trailing on the water's side. Its place comes from the water's height and the shore's
-      // slope, so it is the same width in metres on a steep shore and a flat one, and it fades when narrower than a
-      // pixel. (Drawn before as lace wherever the mesh was within 2 m of land, it covered whole flat shores with a
-      // still, cracked white sheet, "like broken ice"; as a contour of height alone it was a solid painted line.)
-      float shoreSlope = max(fwidth(aboveSea) / foot, 2e-3);
-      float fromEdge = (aboveSea - 0.7) / shoreSlope
-        - 1.2 * sin(terrainTime * 0.7 + 6.2832 * detailNoise(pm / 45.0)) - 1.5 * (detailNoise(pm / 9.0) - 0.5);
-      float edgeHalf = max(0.3, 0.6 * foot);
-      float wash = (1.0 - smoothstep(edgeHalf, 2.0 * edgeHalf, abs(fromEdge))) * min(0.45 / edgeHalf, 1.0)
-        * smoothstep(0.3, 0.65, lace);
-      wash = max(wash, 0.5 * exp(min(fromEdge, 0.0) / 1.8) * step(fromEdge, 0.0) * smoothstep(0.5, 0.75, lace)
-        * (1.0 - smoothstep(1.0, 4.0, foot)));
-      wash *= 0.65 * step(0.01, fwidth(aboveSea) / foot);
+      // (No foam drawn along the water's edge itself. As lace wherever the mesh was within 2 m of land it covered
+      // flat shores with a still, cracked white sheet, "like broken ice"; as a thin line at the water's height it was
+      // a static white line out in the shallows. The moving fronts are the shore's foam.)
       float caps = 0.015 * smoothstep(0.85, 1.3, gust);
       float whitecaps = smoothstep(1.0 - caps, 1.0 - caps + 0.1, lace) * step(0.002, caps);
-      float foam = max(mix(max(surf, whitecaps), 0.12 * breaking * openWater + 0.5 * caps, smoothstep(1.0, 5.0, foot)),
-        wash);
+      float foam = mix(max(surf, whitecaps), 0.12 * breaking * openWater + 0.5 * caps, smoothstep(1.0, 5.0, foot));
       // The water churned up inside the surf, a little milky
       water = mix(water, water * 0.85 + vec3(0.04, 0.05, 0.05), 0.4 * breaking * openWater * exp(-3.0 * behind));
       water = mix(water, vec3(0.7, 0.72, 0.72), 0.8 * clamp(foam, 0.0, 1.0));
