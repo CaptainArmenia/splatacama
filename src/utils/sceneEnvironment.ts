@@ -135,7 +135,7 @@ const TERRAIN_DETAIL_HEADER = `
   uniform sampler2D seaFoam;
   uniform vec3 scrubBare;
   varying vec3 vTerrainNormal;
-  varying vec3 vTerrainShore;
+  varying vec2 vTerrainShore;
   // detailNoise and its slope
   vec3 terrainNoise(vec2 p) {
     vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f), du = 6.0 * f * (1.0 - f);
@@ -205,8 +205,6 @@ const SCRUB_CARDS = 120;
 const COAST_FAR = 1000;
 // White water the satellite saw counts as surf this near the land (metres): further out it's a boat's wake or glare
 const SURF_REACH = 200;
-// Beaches get wet sand and waves running up them this far from the site (metres): beyond, they're under a pixel
-const SHORE_REACH = 3000;
 
 // Sunlight and the sea (TerrainLight's uniforms). The baked colours are of level ground under the photos' sun, hazed
 // toward the horizon colour with distance from the site (env_build.py --haze-km); here the land's slopes are lit by
@@ -214,8 +212,8 @@ const SHORE_REACH = 3000;
 // the haze. The sea is drawn here instead of baked: waves (trains around the swell's direction and drifting ripples,
 // each fading out as it shrinks under a few pixels, what's lost becoming roughness), the sky reflected off them by
 // Fresnel, the sun's glitter, the water's own dark colour, and surf: crests running in to the shore and a band of
-// white water along it, and on the beaches wet sand and the waves' run-up (vTerrainShore: metres from the land at
-// sea, how much white water the satellite saw there, and metres from the water on land).
+// white water along it (vTerrainShore: metres from the land, and how much white water the satellite saw there),
+// and a wash line and wet sand where the water meets the land.
 const TERRAIN_LIGHT_FRAGMENT = `
     vec3 haze = diffuse * terrainAir * (1.0 - exp(-rm / ${HAZE_METRES.toFixed(1)}));
     vec3 slopeNormal = normalize(vTerrainNormal);
@@ -253,23 +251,10 @@ const TERRAIN_LIGHT_FRAGMENT = `
       slopeNormal = normalize(slopeNormal + vec3(-grad.x, 0.0, -grad.y));
       diffuseColor.rgb *= 1.0 - 0.14 * gullied * (seeWide * max(-wide.x, 0.0) + 0.5 * seeNarrow * max(-narrow.x, 0.0));
     }
-    // The beaches (low land by the water, not cliff tops): wet sand along the water's edge, and each wave running up
-    // a few metres as a thin sheet of water with foam at its edge, then draining back
-    float inland = vTerrainShore.z;
-    float beach = land * (1.0 - smoothstep(1.5, 4.0, aboveSea)) * (1.0 - smoothstep(4.0, 12.0, foot));
-    if (beach > 0.0 && inland < 20.0) {
-      float wave = fract(terrainTime / 10.0 + 0.6 * detailNoise(pm / 50.0));
-      float runup = (1.5 + 5.0 * detailNoise(pm / 18.0 + 3.0))
-        * (wave < 0.2 ? smoothstep(0.0, 0.2, wave) : 1.0 - smoothstep(0.2, 1.0, wave));
-      float wetSand = 1.0 - smoothstep(4.0, 9.0, inland + 3.0 * detailNoise(pm / 7.0));
-      diffuseColor.rgb *= mix(vec3(1.0), vec3(0.6, 0.62, 0.66), wetSand * beach);
-      float sheet = (1.0 - smoothstep(runup - 0.5, runup, inland)) * beach;
-      float sheetEdge = sheet * smoothstep(runup - 1.5, runup - 0.3, inland)
-        * smoothstep(0.35, 0.6, texture2D(seaFoam, pm / 3.7).r);
-      vec3 film = diffuseColor.rgb * 0.7 + textureLod(terrainSky, vec2(0.25, 0.53), 0.0).rgb * 0.25;
-      diffuseColor.rgb = mix(diffuseColor.rgb, film, 0.8 * sheet);
-      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.8), 0.8 * sheetEdge);
-    }
+    // Wet sand and rock just above the water's reach, by height above the sea (not by distance along the mesh, whose
+    // triangles are tens of metres wide along the shore)
+    float wetShore = land * (1.0 - smoothstep(1.4, 2.6, aboveSea + 0.5 * (detailNoise(pm / 7.0) - 0.5)));
+    diffuseColor.rgb *= mix(vec3(1.0), vec3(0.72, 0.74, 0.78), wetShore);
     float sunUp = max(-terrainSun.y, 0.1);
     // With the atmosphere the sun's light is warm and the sky's cool
     vec3 sunColour = mix(vec3(1.0), vec3(1.07, 1.0, 0.9), terrainGlow);
@@ -360,7 +345,7 @@ const TERRAIN_LIGHT_FRAGMENT = `
         + min(0.5 * glitter, 2.5) * (1.0 - shadowed);
       // White water where it would be: breaking waves where the satellite saw white water (reefs, points) and,
       // gentler, along every shore -- lines running in parallel to the shore, each a bright front with foam trailing
-      // out behind it, thinning into lace (seaFoam) -- a thin edge where the water meets the land, and a few
+      // out behind it, thinning into lace (seaFoam) -- a thin wash where the water meets the land, and a few
       // whitecaps out at sea where the wind gusts. Soft-edged and never quite opaque: hard white flakes over the
       // whole surf zone looked like broken ice. Far off, where a pixel spans a line, it blurs into its average.
       float lace = 0.6 * texture2D(seaFoam, pm / 11.0 + vec2(terrainTime * 0.012, 0.0)).r
@@ -372,14 +357,30 @@ const TERRAIN_LIGHT_FRAGMENT = `
       float front = 1.0 - smoothstep(0.0, 0.06, behind) + smoothstep(0.97, 1.0, behind);
       // The foam's density: a breaking front, broken along its length, and the lace it leaves behind
       float density = breaking * (front * (0.35 + 0.65 * lace) + exp(-4.0 * behind) * lace);
-      float surf = smoothstep(0.3, 0.65, density);
-      float waterline = (1.0 - smoothstep(0.0, 2.0, coast)) * smoothstep(0.35, 0.65, lace);
+      // (on open water only: over a flat beach's shallows the mesh gives no distance to run the fronts along, and
+      // they pulsed in place)
+      float openWater = 1.0 - smoothstep(0.15, 0.3, aboveSea);
+      float surf = smoothstep(0.3, 0.65, density) * openWater;
+      // The wash: a thin, broken line of foam where the water ends, running a metre or two up the shore and back,
+      // with a little lace trailing on the water's side. Its place comes from the water's height and the shore's
+      // slope, so it is the same width in metres on a steep shore and a flat one, and it fades when narrower than a
+      // pixel. (Drawn before as lace wherever the mesh was within 2 m of land, it covered whole flat shores with a
+      // still, cracked white sheet, "like broken ice"; as a contour of height alone it was a solid painted line.)
+      float shoreSlope = max(fwidth(aboveSea) / foot, 2e-3);
+      float fromEdge = (aboveSea - 0.7) / shoreSlope
+        - 1.2 * sin(terrainTime * 0.7 + 6.2832 * detailNoise(pm / 45.0)) - 1.5 * (detailNoise(pm / 9.0) - 0.5);
+      float edgeHalf = max(0.3, 0.6 * foot);
+      float wash = (1.0 - smoothstep(edgeHalf, 2.0 * edgeHalf, abs(fromEdge))) * min(0.45 / edgeHalf, 1.0)
+        * smoothstep(0.3, 0.65, lace);
+      wash = max(wash, 0.5 * exp(min(fromEdge, 0.0) / 1.8) * step(fromEdge, 0.0) * smoothstep(0.5, 0.75, lace)
+        * (1.0 - smoothstep(1.0, 4.0, foot)));
+      wash *= 0.65 * step(0.01, fwidth(aboveSea) / foot);
       float caps = 0.015 * smoothstep(0.85, 1.3, gust);
       float whitecaps = smoothstep(1.0 - caps, 1.0 - caps + 0.1, lace) * step(0.002, caps);
-      float foam = mix(max(max(surf, waterline), whitecaps),
-        0.12 * breaking + 0.15 * (1.0 - smoothstep(0.0, 2.0, coast)) + 0.5 * caps, smoothstep(1.0, 5.0, foot));
+      float foam = max(mix(max(surf, whitecaps), 0.12 * breaking * openWater + 0.5 * caps, smoothstep(1.0, 5.0, foot)),
+        wash);
       // The water churned up inside the surf, a little milky
-      water = mix(water, water * 0.85 + vec3(0.04, 0.05, 0.05), 0.4 * breaking * exp(-3.0 * behind));
+      water = mix(water, water * 0.85 + vec3(0.04, 0.05, 0.05), 0.4 * breaking * openWater * exp(-3.0 * behind));
       water = mix(water, vec3(0.7, 0.72, 0.72), 0.8 * clamp(foam, 0.0, 1.0));
       water = water * diffuse * exp(-rm / ${HAZE_METRES.toFixed(1)}) + haze * hazeTint;
       diffuseColor.rgb = mix(water, diffuseColor.rgb, land);
@@ -490,10 +491,10 @@ function addTerrainDetail(material: any, texture: any, detail: TerrainDetail, an
     shader.uniforms.terrainGlow = light.glow;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
-        attribute vec3 terrainShore;
+        attribute vec2 terrainShore;
         varying vec3 vTerrainPosition;
         varying vec3 vTerrainNormal;
-        varying vec3 vTerrainShore;`)
+        varying vec2 vTerrainShore;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         vTerrainPosition = position;
         vTerrainNormal = normal;
@@ -556,8 +557,7 @@ function prepareTerrainGeometry(geometry: THREE.BufferGeometry, detail: TerrainD
   geometry.computeVertexNormals();
   const p = geometry.attributes.position.array as ArrayLike<number>;
   const count = geometry.attributes.position.count;
-  const shore = new Float32Array(3 * count);
-  for (let i = 0; i < count; i++) shore[3 * i + 2] = COAST_FAR;
+  const shore = new Float32Array(2 * count);
   const index = geometry.index?.array;
   if (detail.seaZ !== undefined && index) {
     const perMetre = detail.unitsPerMetre ?? 1;
@@ -575,24 +575,12 @@ function prepareTerrainGeometry(geometry: THREE.BufferGeometry, detail: TerrainD
     }
     relaxAll(coast, wet, index, p, perMetre, 6);
     const white = whiteWater(geometry, coast, perMetre, texture?.image);
-    // And the other way: how far each land vertex lies from the water (for the beaches' wet sand and the waves
-    // running up them), over the triangles within SHORE_REACH of the site
-    const inland = new Float32Array(count);
-    for (let i = 0; i < count; i++) inland[i] = coast[i] ? 0 : COAST_FAR;
-    const near: number[] = [];
-    const reach = (SHORE_REACH * perMetre) ** 2;
-    for (let t = 0; t < index.length; t += 3) {
-      const v = index[t];
-      if (p[3 * v] ** 2 + p[3 * v + 2] ** 2 < reach) near.push(t);
-    }
-    relaxAll(inland, near, index, p, perMetre, 4);
     for (let i = 0; i < count; i++) {
-      shore[3 * i] = coast[i];
-      shore[3 * i + 1] = white[i];
-      shore[3 * i + 2] = inland[i];
+      shore[2 * i] = coast[i];
+      shore[2 * i + 1] = white[i];
     }
   }
-  geometry.setAttribute('terrainShore', new THREE.BufferAttribute(shore, 3));
+  geometry.setAttribute('terrainShore', new THREE.BufferAttribute(shore, 2));
 }
 
 // Shortest paths along the mesh's edges (metres) from the vertices at 0, by sweeps over the triangles both ways in turn
