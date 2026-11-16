@@ -7,7 +7,7 @@ import type { MapLandmark, SceneTurbines } from '@/types/cesium';
 import { assetUrl } from '@/utils/assetUrl';
 import { buildWalkArea } from '@/utils/walkArea';
 import { isVRSupported, VRWalk } from '@/utils/vrWalk';
-import { loadSceneEnvironment, type LoadedEnvironment } from '@/utils/sceneEnvironment';
+import { loadSceneEnvironment, terrainAnisotropy, type LoadedEnvironment } from '@/utils/sceneEnvironment';
 import { addWindTurbines, type WindTurbines } from '@/utils/windTurbines';
 import { createMeshAntialias } from '@/utils/meshAntialias';
 import { analyzeSite, parseSplat, type SiteAnalysis } from '@/effects/siteAnalysis';
@@ -342,7 +342,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
         };
         // Without it the scene still works, cut off at the edge of the site
         const environmentLoaded = env
-          ? loadSceneEnvironment(env, renderer.capabilities.getMaxAnisotropy(), (loaded, total) => {
+          ? loadSceneEnvironment(env, terrainAnisotropy(renderer), (loaded, total) => {
             received.terrain = loaded;
             totals.terrain = total;
             showProgress();
@@ -415,6 +415,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
         if (walkArea) {
           vr = new VRWalk(renderer, camera, rig, world, walkArea, metersPerUnit, far * metersPerUnit, (active) => {
             spark.maxStdDev = active ? VR_SPLAT_STD_DEV : SPLAT_STD_DEV;
+            effects?.setHeadset(active);
           });
           vrRef.current = vr;
           setVrReady(true);

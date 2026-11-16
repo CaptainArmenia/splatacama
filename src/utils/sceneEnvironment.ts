@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import type { SceneEnvironment } from '@/types/cesium';
 import { assetUrl } from '@/utils/assetUrl';
+import { isHeadsetBrowser } from '@/utils/vrWalk';
 
 // Radius of the sky sphere, which follows the camera (inside the camera's far plane)
 const SKY_RADIUS = 500;
@@ -20,6 +21,52 @@ interface TerrainDetail {
   // Where the terrain's texture is a mosaic of the site's own drone photos (env_build.py photo_mosaic): a texture
   // of its coverage, laid out as the terrain's. There the land already has its real plants, rocks and shading.
   photoMask?: number;
+}
+
+// How many samples a texture seen edge-on is filtered with. A headset's GPU pays for each (on a Quest 3 the full 16 took
+// about 4 ms of the terrain's 26 a frame) and at its resolution 4 look the same.
+export function terrainAnisotropy(renderer: THREE.WebGLRenderer) {
+  return Math.min(renderer.capabilities.getMaxAnisotropy(), isHeadsetBrowser() ? 4 : 16);
+}
+
+// The shaders' smooth noise as a texture: random values on a grid NOISE_CELLS across (it repeats beyond), eased between
+// with the usual smoothstep, stored at NOISE_STEPS texels a cell so that the GPU's own linear filtering (which has only
+// 256 steps between texels) doesn't show as bands where one cell fills the screen
+const NOISE_CELLS = 256;
+const NOISE_STEPS = 4;
+function noiseTexture() {
+  const cells = NOISE_CELLS;
+  const size = cells * NOISE_STEPS;
+  const lattice = new Float32Array(cells * cells);
+  let seed = 20261116;
+  for (let i = 0; i < lattice.length; i++) {
+    seed = (seed * 16807) % 2147483647;
+    lattice[i] = seed / 2147483647;
+  }
+  const data = new Uint8Array(size * size);
+  const ease = new Float32Array(NOISE_STEPS);
+  for (let k = 0; k < NOISE_STEPS; k++) {
+    const f = (k + 0.5) / NOISE_STEPS;
+    ease[k] = f * f * (3 - 2 * f);
+  }
+  for (let y = 0; y < size; y++) {
+    const j = Math.floor(y / NOISE_STEPS);
+    const j1 = (j + 1) % cells;
+    const v = ease[y % NOISE_STEPS];
+    for (let x = 0; x < size; x++) {
+      const i = Math.floor(x / NOISE_STEPS);
+      const i1 = (i + 1) % cells;
+      const u = ease[x % NOISE_STEPS];
+      const top = lattice[j * cells + i] * (1 - u) + lattice[j * cells + i1] * u;
+      const bottom = lattice[j1 * cells + i] * (1 - u) + lattice[j1 * cells + i1] * u;
+      data[y * size + x] = Math.round(255 * (top * (1 - v) + bottom * v));
+    }
+  }
+  const texture = new THREE.DataTexture(data, size, size, THREE.RedFormat, THREE.UnsignedByteType);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.magFilter = texture.minFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  return texture;
 }
 
 // The clouds: their base (metres above the site), how big they come (metres), the wind (metres a second), how far
@@ -42,34 +89,42 @@ const MIST_MOST = 0.7;
 // cumulus CLOUD_HEIGHT up, smooth noise bent by itself, drifting with the wind (from the south-west, as the swell),
 // covering more or less of the sky with terrainClouds (0: none). The haze toward the horizon is brighter and warmer
 // toward the sun's side (terrainGlow: 0 leaves it the same all around).
+// terrainLite (1 in a VR headset, whose GPU draws each pixel many times slower than a computer's): the terrain leaves
+// out what costs most for what it shows -- the gullies, the rock mottling -- and the clouds' shadows and the mist take
+// the clouds' large shapes without their small ones. Measured on a Quest 3, the full terrain and sky took about as
+// long to draw as the splats themselves.
 const SKY_LIGHT_GLSL = `
   uniform vec3 terrainSun;
   uniform vec2 terrainSwell;
   uniform float terrainTime;
   uniform float terrainClouds;
   uniform float terrainGlow;
-  float cloudHash(vec2 i) { return fract(sin(dot(i, vec2(127.1, 311.7))) * 43758.5453); }
-  float cloudNoise(vec2 p) {
-    vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
-    return mix(mix(cloudHash(i), cloudHash(i + vec2(1.0, 0.0)), u.x),
-               mix(cloudHash(i + vec2(0.0, 1.0)), cloudHash(i + vec2(1.0, 1.0)), u.x), u.y);
-  }
-  float cloudFbm(vec2 p) {
+  uniform float terrainLite;
+  uniform sampler2D terrainNoiseMap;
+  // Smooth noise (0 to 1; one random value per unit of p, eased between), read from a texture (noiseTexture): worked
+  // out in the shader from four hashed corners, the clouds, the mist and the shore together cost a headset's GPU more
+  // than the splats
+  float cloudNoise(vec2 p) { return textureLod(terrainNoiseMap, p / ${NOISE_CELLS.toFixed(1)}, 0.0).r; }
+  // (the first \`octaves\` of five; the rest count as their mean, so the sum keeps its level)
+  float cloudFbm(vec2 p, int octaves) {
     float sum = 0.0, weight = 0.5;
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < octaves; i++) {
       sum += weight * cloudNoise(p);
       p = mat2(1.6, 1.2, -1.2, 1.6) * p + 7.1;
       weight *= 0.5;
     }
-    return sum;
+    return sum + (octaves < 5 ? weight - 0.015625 : 0.0);
   }
-  // How much cloud covers a point of the layer (metres across the viewer's frame from the site)
-  float cloudCover(vec2 p) {
+  float cloudFbm(vec2 p) { return cloudFbm(p, 5); }
+  // How much cloud covers a point of the layer (metres across the viewer's frame from the site); \`soft\`: only the
+  // clouds' large shapes, for where they are seen blurred anyway (their shadows, their reflection in the sea)
+  float cloudCover(vec2 p, bool soft) {
     vec2 q = (p - terrainSwell * ${CLOUD_WIND.toFixed(1)} * terrainTime) / ${CLOUD_SIZE.toFixed(1)};
-    float n = cloudFbm(q + 0.7 * cloudFbm(q * 0.5 + 1.7));
+    float n = soft ? cloudFbm(q + 0.7 * cloudFbm(q * 0.5 + 1.7, 2), 3) : cloudFbm(q + 0.7 * cloudFbm(q * 0.5 + 1.7));
     float edge = mix(0.7, 0.48, terrainClouds);
     return smoothstep(edge, edge + 0.13, n);
   }
+  float cloudCover(vec2 p) { return cloudCover(p, false); }
   // The haze's colour along a direction, over its colour all around (1: the same)
   vec3 terrainHazeTint(vec3 toward) {
     vec2 a = normalize(toward.xz + 1e-5), b = normalize(terrainSun.xz + 1e-5);
@@ -94,7 +149,7 @@ const SKY_FRAGMENT = `{
       float far = ${CLOUD_HEIGHT.toFixed(1)} / max(up, 0.015);
       vec2 p = d.xz * far;
       cover = cloudCover(p);
-      float sunward = cloudCover(p + normalize(terrainSun.xz + 1e-5) * 220.0);
+      float sunward = cloudCover(p + normalize(terrainSun.xz + 1e-5) * 220.0, terrainLite > 0.5);
       float lit = clamp(0.7 + 2.2 * (cover - sunward), 0.0, 1.0);
       vec3 cloud = mix(vec3(0.5, 0.55, 0.63), vec3(1.0, 0.98, 0.95), lit);
       cloud += vec3(1.0, 0.95, 0.85) * pow(max(dot(d, terrainSun), 0.0), 10.0) * (1.0 - cover) * 1.2;
@@ -124,11 +179,7 @@ const TERRAIN_DETAIL_HEADER = `
   uniform float scrubGrainPeriod;
   varying vec3 vTerrainPosition;
   float detailHash(vec2 i) { return fract(sin(dot(i, vec2(127.1, 311.7))) * 43758.5453); }
-  float detailNoise(vec2 p) {
-    vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
-    return mix(mix(detailHash(i), detailHash(i + vec2(1.0, 0.0)), u.x),
-               mix(detailHash(i + vec2(0.0, 1.0)), detailHash(i + vec2(1.0, 1.0)), u.x), u.y);
-  }
+  float detailNoise(vec2 p) { return cloudNoise(p); }
   uniform float terrainDay;
   uniform float terrainSand;
   uniform float terrainMist;
@@ -235,8 +286,8 @@ const TERRAIN_LIGHT_FRAGMENT = `
     // of kilometres: outcrops darker and standing out of the sand (their sides lit or not), each scale fading out as
     // a pixel grows past it
     float rocky = land * smoothstep(detailFade.y, detailFade.y + 20.0 * detailSea.y, r) * (1.0 - smoothstep(1500.0, 3000.0, rm))
-      * beyondPhoto;
-    if (rocky > 0.0) {
+      * beyondPhoto * (1.0 - terrainLite);
+    if (rocky > 0.0 && foot < 24.0) {
       vec2 q = mat2(0.8, -0.6, 0.6, 0.8) * pm;
       float big = 1.0 - smoothstep(6.0, 24.0, foot);
       float small = 1.0 - smoothstep(2.0, 8.0, foot);
@@ -252,13 +303,13 @@ const TERRAIN_LIGHT_FRAGMENT = `
     // reconstruction has the real ones.
     float steep = length(smoothNormal.xz);
     float gullied = land * smoothstep(0.06, 0.3, steep) * smoothstep(detailFade.y, detailFade.y + 15.0 * detailSea.y, r)
-      * (1.0 - smoothstep(2500.0, 5000.0, rm)) * beyondPhoto;
-    if (gullied > 0.0) {
+      * (1.0 - smoothstep(2500.0, 5000.0, rm)) * beyondPhoto * (1.0 - terrainLite);
+    float seeWide = 1.0 - smoothstep(${(GULLY_CELL / 10).toFixed(1)}, ${(GULLY_CELL / 3).toFixed(1)}, foot);
+    float seeNarrow = 1.0 - smoothstep(${(GULLY_CELL / 30).toFixed(2)}, ${(GULLY_CELL / 9).toFixed(2)}, foot);
+    if (gullied > 0.0 && seeWide > 0.0) {
       vec2 down = normalize(smoothNormal.xz);
       vec3 wide = terrainGullies(pm / ${GULLY_CELL.toFixed(1)}, down);
-      vec3 narrow = terrainGullies(pm / ${(GULLY_CELL / 3).toFixed(1)} + 13.0, down);
-      float seeWide = 1.0 - smoothstep(${(GULLY_CELL / 10).toFixed(1)}, ${(GULLY_CELL / 3).toFixed(1)}, foot);
-      float seeNarrow = 1.0 - smoothstep(${(GULLY_CELL / 30).toFixed(2)}, ${(GULLY_CELL / 9).toFixed(2)}, foot);
+      vec3 narrow = seeNarrow > 0.0 ? terrainGullies(pm / ${(GULLY_CELL / 3).toFixed(1)} + 13.0, down) : vec3(0.0);
       vec2 grad = ${GULLY_DEPTH.toFixed(2)} * gullied * (wide.yz * seeWide / ${GULLY_CELL.toFixed(1)}
         + 0.25 * narrow.yz * seeNarrow / ${(GULLY_CELL / 3).toFixed(1)});
       slopeNormal = normalize(slopeNormal + vec3(-grad.x, 0.0, -grad.y));
@@ -272,17 +323,22 @@ const TERRAIN_LIGHT_FRAGMENT = `
     // drains back, at its own moment along each stretch. Above it the sand is wet and dark as far as the waves reach.
     float shoreSlope = max(length(smoothNormal.xz) / max(abs(smoothNormal.y), 0.05), 2e-3);
     float shoreGentle = min(1.0, 0.25 / shoreSlope);
-    float fromShore = (aboveSea - ${SHORE_HEIGHT.toFixed(2)}) / shoreSlope
-      + shoreGentle * (10.0 * (detailNoise(pm / 55.0 + 4.0) - 0.5) + 4.0 * (detailNoise(pm / 14.0) - 0.5)
-        + 1.5 * (detailNoise(pm / 3.5 + 9.0) - 0.5));
-    float swashWave = fract(terrainTime / 9.0 + 2.0 * detailNoise(pm / 40.0));
-    float swash = swashWave < 0.25 ? smoothstep(0.0, 0.25, swashWave) : 1.0 - smoothstep(0.25, 1.0, swashWave);
-    float fromWater = fromShore - ${SWASH_REACH.toFixed(1)} * shoreGentle * swash;
+    float fromShore = (aboveSea - ${SHORE_HEIGHT.toFixed(2)}) / shoreSlope;
     float edgeBlur = max(0.75 * foot, 0.04);
-    float shoreLand = smoothstep(-edgeBlur, edgeBlur, fromWater);
-    float wetSand = 1.0 - smoothstep(${SWASH_REACH.toFixed(1)} * shoreGentle + 0.3, ${SWASH_REACH.toFixed(1)} * shoreGentle + 3.0,
-      fromShore + 1.5 * (detailNoise(pm / 6.0) - 0.5));
-    diffuseColor.rgb *= mix(vec3(1.0), vec3(0.6, 0.63, 0.68), wetSand);
+    float swashWave = 1.0, fromWater = fromShore, shoreLand = 1.0;
+    // (only near the water's height: the bends, the swash and the wet sand together reach under 16 m up the shore,
+    // and most of the land is far above that)
+    if (fromShore < 16.0 + edgeBlur) {
+      fromShore += shoreGentle * (10.0 * (detailNoise(pm / 55.0 + 4.0) - 0.5) + 4.0 * (detailNoise(pm / 14.0) - 0.5)
+        + 1.5 * (detailNoise(pm / 3.5 + 9.0) - 0.5));
+      swashWave = fract(terrainTime / 9.0 + 2.0 * detailNoise(pm / 40.0));
+      float swash = swashWave < 0.25 ? smoothstep(0.0, 0.25, swashWave) : 1.0 - smoothstep(0.25, 1.0, swashWave);
+      fromWater = fromShore - ${SWASH_REACH.toFixed(1)} * shoreGentle * swash;
+      shoreLand = smoothstep(-edgeBlur, edgeBlur, fromWater);
+      float wetSand = 1.0 - smoothstep(${SWASH_REACH.toFixed(1)} * shoreGentle + 0.3, ${SWASH_REACH.toFixed(1)} * shoreGentle + 3.0,
+        fromShore + 1.5 * (detailNoise(pm / 6.0) - 0.5));
+      diffuseColor.rgb *= mix(vec3(1.0), vec3(0.6, 0.63, 0.68), wetSand);
+    }
     float sunUp = max(-terrainSun.y, 0.1);
     // With the atmosphere the sun's light is warm and the sky's cool
     vec3 sunColour = mix(vec3(1.0), vec3(1.07, 1.0, 0.9), terrainGlow);
@@ -293,10 +349,11 @@ const TERRAIN_LIGHT_FRAGMENT = `
     // The clouds' shadows drift over the land (not near the site: the splat's own light is fixed). Where the sun is
     // hidden only the sky's light is left, a little bluer.
     float shadowed = 0.0;
-    if (terrainClouds > 0.0) {
+    float shadowsFall = terrainDay * smoothstep(${CLOUD_SHADOW_FROM.toFixed(1)}, ${(2.5 * CLOUD_SHADOW_FROM).toFixed(1)}, rm);
+    if (terrainClouds > 0.0 && shadowsFall > 0.0) {
       float aboveSite = -vTerrainPosition.y / detailSea.y;
       vec2 underCloud = pm + terrainSun.xz / sunUp * (${CLOUD_HEIGHT.toFixed(1)} - aboveSite);
-      shadowed = cloudCover(underCloud) * terrainDay * smoothstep(${CLOUD_SHADOW_FROM.toFixed(1)}, ${(2.5 * CLOUD_SHADOW_FROM).toFixed(1)}, rm);
+      shadowed = cloudCover(underCloud, terrainLite > 0.5) * shadowsFall;
     }
     vec3 shadowLight = mix(vec3(1.0), vec3(0.92, 0.97, 1.12) * ${AMBIENT.toFixed(2)}
       / (${AMBIENT.toFixed(2)} + ${(1 - AMBIENT).toFixed(2)} * sunUp), shadowed);
@@ -356,7 +413,7 @@ const TERRAIN_LIGHT_FRAGMENT = `
       if (terrainClouds > 0.0) {
         float mirroredUp = max(-mirrored.y, 0.02);
         float far = ${CLOUD_HEIGHT.toFixed(1)} / mirroredUp;
-        float reflected = cloudCover(pm + mirrored.xz * far) * smoothstep(0.0, 0.08, mirroredUp) * exp(-far / ${CLOUD_FADE.toFixed(1)});
+        float reflected = cloudCover(pm + mirrored.xz * far, terrainLite > 0.5) * smoothstep(0.0, 0.08, mirroredUp) * exp(-far / ${CLOUD_FADE.toFixed(1)});
         skyColour = mix(skyColour, vec3(0.8, 0.82, 0.86), reflected);
       }
       vec3 halfway = normalize(terrainSun + toEye);
@@ -413,11 +470,16 @@ const TERRAIN_LIGHT_FRAGMENT = `
     // change shape, thicker the further one looks through it
     if (terrainMist > 0.0) {
       float throughMetres = length(terrainEye - vTerrainPosition) / detailSea.y;
-      vec2 drift = (pm - terrainSwell * ${MIST_WIND.toFixed(1)} * terrainTime) / ${MIST_BANK.toFixed(1)};
-      float banks = smoothstep(0.38, 0.72, 0.7 * cloudFbm(drift + terrainTime * 0.002) + 0.3 * cloudNoise(drift * 4.3 + 2.0));
-      float mist = terrainMist * exp(-max(aboveSea, 0.0) / ${MIST_DEPTH.toFixed(1)}) * banks
+      float mist = terrainMist * exp(-max(aboveSea, 0.0) / ${MIST_DEPTH.toFixed(1)})
         * (1.0 - exp(-throughMetres / ${MIST_THROUGH.toFixed(1)}));
-      diffuseColor.rgb = mix(diffuseColor.rgb, diffuse * vec3(0.72, 0.75, 0.78) * mix(0.3, 1.0, terrainDay), ${MIST_MOST.toFixed(2)} * mist);
+      // (not where even a whole bank would change the colour by less than a step: close by, and high up)
+      if (mist > 0.006) {
+        vec2 drift = (pm - terrainSwell * ${MIST_WIND.toFixed(1)} * terrainTime) / ${MIST_BANK.toFixed(1)};
+        float banks = smoothstep(0.38, 0.72, 0.7 * cloudFbm(drift + terrainTime * 0.002, terrainLite > 0.5 ? 2 : 5)
+          + 0.3 * cloudNoise(drift * 4.3 + 2.0));
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuse * vec3(0.72, 0.75, 0.78) * mix(0.3, 1.0, terrainDay),
+          ${MIST_MOST.toFixed(2)} * mist * banks);
+      }
     }`;
 
 const TERRAIN_DETAIL_FRAGMENT = `{
@@ -524,6 +586,8 @@ function addTerrainDetail(material: any, texture: any, photoMask: any, detail: T
     shader.uniforms.terrainAir = light.air;
     shader.uniforms.terrainWater = light.water;
     shader.uniforms.terrainClouds = light.clouds;
+    shader.uniforms.terrainLite = light.lite;
+    shader.uniforms.terrainNoiseMap = light.noise;
     shader.uniforms.terrainMist = light.mist;
     shader.uniforms.terrainSand = light.sand;
     shader.uniforms.terrainGlow = light.glow;
@@ -585,6 +649,10 @@ export type TerrainLight = {
   mist: { value: number };
   // How much bright sand is tinted a warm sand colour (SceneEnvironment.paleSand)
   sand: { value: number };
+  // 1 in a VR headset: the costliest parts of the terrain's shading are left out or simplified (see SKY_LIGHT_GLSL)
+  lite: { value: number };
+  // The shaders' smooth noise (noiseTexture)
+  noise: { value: THREE.Texture };
 };
 
 // Smooth normals for the sunlight on the slopes, and for the surf, each vertex's distance from the land (metres; 0 on
@@ -764,6 +832,8 @@ export async function loadSceneEnvironment(
     glow: { value: 0 },
     mist: { value: 0 },
     sand: { value: env.paleSand ?? 0.15 },
+    lite: { value: 0 },
+    noise: { value: noiseTexture() },
   };
   const eye = new THREE.Vector3();
 
@@ -773,7 +843,7 @@ export async function loadSceneEnvironment(
     const skyMesh = new THREE.Mesh(
       new THREE.SphereGeometry(SKY_RADIUS, 96, 48),
       new THREE.MeshBasicMaterial({
-        map: skyTexture, side: THREE.BackSide, depthTest: false, depthWrite: false, fog: false, toneMapped: false
+        map: skyTexture, side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false
       })
     );
     // The clouds, the sun and the haze's glow toward it, over the panorama (in the terrain's frame: the sphere is
@@ -782,18 +852,24 @@ export async function loadSceneEnvironment(
     skyMaterial.onBeforeCompile = (shader: any) => {
       Object.assign(shader.uniforms, {
         terrainSun: light.sun, terrainSwell: light.swell, terrainTime: light.time,
-        terrainClouds: light.clouds, terrainGlow: light.glow,
+        terrainClouds: light.clouds, terrainGlow: light.glow, terrainLite: light.lite,
+        terrainNoiseMap: light.noise,
       });
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', '#include <common>\nvarying vec3 vSkyDirection;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSkyDirection = vec3(position.x, -position.y, -position.z);');
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSkyDirection = vec3(position.x, -position.y, -position.z);')
+        // (at the far plane, whatever the sphere's size: behind everything)
+        .replace('#include <project_vertex>', '#include <project_vertex>\ngl_Position.z = gl_Position.w;');
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>\nvarying vec3 vSkyDirection;\n${SKY_LIGHT_GLSL}`)
         .replace('#include <map_fragment>', `#include <map_fragment>\n${SKY_FRAGMENT}`);
     };
     skyMaterial.customProgramCacheKey = () => 'sky-light';
     skyMesh.rotation.x = Math.PI; // the panorama is upright; the scene is y-down
-    skyMesh.renderOrder = -1;
+    // Drawn after the land and what stands on it, depth-tested, so its clouds are only worked out for the pixels where
+    // the sky shows (drawn first, they were worked out for every pixel of the screen); before the ground under the
+    // splat, which writes no depth
+    skyMesh.renderOrder = 0.5;
     skyMesh.frustumCulled = false;
     // Centred on the camera, wherever the scene is in the world (VR turns and scales it)
     const cameraPosition = new THREE.Vector3();
@@ -844,6 +920,7 @@ export async function loadSceneEnvironment(
     group, terrain, sky, bloom, scrub, light,
     dispose: () => {
       blank.dispose();
+      light.noise.value.dispose();
       seaNormals.dispose();
       seaFoam.dispose();
       disposeObject(group);

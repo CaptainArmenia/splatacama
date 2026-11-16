@@ -17,7 +17,7 @@ import { createDesertBloom, type DesertBloom } from '@/effects/desertBloom';
 import type { Earthquake } from '@/effects/earthquake';
 import { createNightSky, type NightSky } from '@/effects/nightSky';
 import { selectSplats, type ParsedSplat, type SiteAnalysis } from '@/effects/siteAnalysis';
-import type { LoadedEnvironment } from '@/utils/sceneEnvironment';
+import { terrainAnisotropy, type LoadedEnvironment } from '@/utils/sceneEnvironment';
 import { createNpc, type Npc } from '@/effects/npc';
 import type { SceneNpc, SiteSun } from '@/types/cesium';
 import type { WindTurbines } from '@/utils/windTurbines';
@@ -91,6 +91,12 @@ export type SceneEffects = {
   setBirds: (on: boolean) => void;
   /** A light camanchaca, always about: wisps in drifting patches, and banks of mist low over the sea far off */
   setMist: (on: boolean) => void;
+  /**
+   * While a VR headset shows the scene: the terrain is shaded more simply (TerrainLight.lite) and the Bruma costera's
+   * wisps aren't drawn. Thousands of large, faint splats over the whole view are costly for a headset's GPU, and in a
+   * Quest 3 they showed as a wall of tiny dots around the site. Its banks of mist on the terrain stay.
+   */
+  setHeadset: (on: boolean) => void;
   /** Cuts the walls into stones the first time (seconds); false when the site has none */
   startQuake: () => Promise<boolean>;
   resetQuake: () => void;
@@ -170,6 +176,7 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
   const mist: Camanchaca = createCamanchaca(analysis.groundAt(0, 0), compass, FOG_WISPS);
   metric.add(mist.mesh);
   let mistOn = false;
+  let headset = false;
   const flowers: DesertBloom = createDesertBloom(analysis, Math.min(options.splatRadius, analysis.half));
   metric.add(flowers.mesh);
   const birds = createSeabirds(analysis.groundAt(0, 0));
@@ -184,7 +191,7 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
   let scrub: Scrub | null = null;
   if (environment && options.scrubUrl) {
     loadScrub(options.scrubUrl, environment, metric, analysis, daylight?.sun ?? sunDirection(compass, site.sun),
-      site.sun?.shadows ?? 1, site.metersPerUnit, renderer.capabilities.getMaxAnisotropy(), options.scrubReach)
+      site.sun?.shadows ?? 1, site.metersPerUnit, terrainAnisotropy(renderer), options.scrubReach)
       .then(loaded => {
         if (disposed) {
           loaded.dispose();
@@ -231,7 +238,7 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     fog.mesh.recolor.copy(night ? NIGHT.fogTint : new THREE.Color(1, 1, 1));
     fog.mesh.updateVersion();
     mist.mesh.recolor.copy(fog.mesh.recolor);
-    mist.mesh.visible = mistOn && !fogOn;
+    mist.mesh.visible = mistOn && !fogOn && !headset;
     if (environment) environment.light.mist.value = mistOn && !fogOn ? 1 : 0;
     // The splats' colours are multiplied as they're stored, the meshes' as light: the same tint, decoded, for those
     const landTint = tint.clone().convertSRGBToLinear();
@@ -290,6 +297,11 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     },
     setMist(on) {
       mistOn = on;
+      apply();
+    },
+    setHeadset(on) {
+      headset = on;
+      if (environment) environment.light.lite.value = on ? 1 : 0;
       apply();
     },
     setBloom(on) {

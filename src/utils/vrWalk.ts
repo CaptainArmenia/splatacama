@@ -26,6 +26,9 @@ const UP = new THREE.Vector3(0, 1, 0);
 // Headset browsers, which can say "Android" or "Mobile" in their user agent too
 const HEADSET_BROWSER = /Quest|OculusBrowser|VisionOS|XRBrowser|Pico|Lynx|MagicLeap/i;
 
+/** A VR headset's own browser: its GPU is a phone's, drawing two views */
+export const isHeadsetBrowser = () => HEADSET_BROWSER.test(navigator.userAgent);
+
 /**
  * Whether to offer VR: a headset, or a computer with one attached. Phones can report VR support too, but a phone
  * held to the face with no controllers is a poor way to walk a site, so they keep the normal view (Spark's own VR
