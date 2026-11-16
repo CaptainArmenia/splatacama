@@ -43,6 +43,9 @@ const UNBLOOM_SECONDS = 2;
 // Peak ground acceleration, in g: a strong earthquake close to its epicentre
 const QUAKE_STRENGTH = 0.8;
 
+// Which way the Pacific's swell runs onto the coast (compass bearing): in from the south-west
+const SWELL_BEARING = 60;
+
 // Chile's coast keeps UTC-3 in the southern summer (and UTC-4 in winter; the night sky uses -3 all year)
 const UTC_OFFSET_HOURS = -3;
 
@@ -130,6 +133,14 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
   // The light the site's people stand in, and their shadows on the splats
   const daylight: Daylight | null = options.npcs?.length ? createDaylight(scene, metric, renderer, analysis, compass, site.sun) : null;
   const shadow = createSplatShadow(daylight?.sun ?? new THREE.Vector3(0, 1, 0));
+  // The terrain's sun and swell, in its frame (the metric frame turned over: y and z flip)
+  if (environment) {
+    const toSun = daylight?.sun ?? sunDirection(compass, site.sun);
+    environment.light.sun.value.set(toSun.x, -toSun.y, -toSun.z).normalize();
+    const b = THREE.MathUtils.degToRad(SWELL_BEARING);
+    const swell = compass.north.clone().multiplyScalar(Math.cos(b)).addScaledVector(compass.east, Math.sin(b));
+    environment.light.swell.value.set(swell.x, -swell.z).normalize();
+  }
   const shadowAt = new THREE.Vector3(0, -1000, 0);
   const prepareSplat = (mesh: SplatMesh) => {
     mesh.objectModifier = siteSplatModifier(hideFar, shadow, file.scale, !!environment);
@@ -204,6 +215,7 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     for (const mesh of environment?.terrain ?? []) (mesh.material as THREE.MeshBasicMaterial).color.copy(landTint);
     scrub?.setTint(landTint);
     if (environment?.sky) environment.sky.visible = !night && !fogOn;
+    if (environment) environment.light.day.value = night || fogOn ? 0 : 1;
     sky.group.visible = night;
     daylight?.setNight(night);
     shadow.uniforms.strength.value = night || fogOn || !npcs.length ? 0 : 1;
