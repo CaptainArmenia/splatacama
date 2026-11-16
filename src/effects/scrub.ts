@@ -6,7 +6,7 @@
  * one atlas image: a side view and a view from above of each kind, with a small JSON file giving each kind's size and
  * share, how thick they grow, and the colour of the bare ground at the splat's edge (SceneEnvironment.scrubUrl). One
  * pattern of plants, repeating every SCRUB.tile metres, feeds both halves:
- * - near the site, each plant stands as a cut-out card that turns to face the camera (one instanced mesh), swaying
+ * - near the site, each plant stands as a cut-out card facing the site's centre (one instanced mesh), swaying
  *   a little, and leans back as the camera rises over it;
  * - on the terrain itself, a tiling map carries each plant as seen from above and its shadow (cast away from the sun
  *   of the site's photos), out to wherever the terrain's detail goes. At the splat's edge the bare ground between
@@ -28,8 +28,8 @@ const SCRUB = {
   reach: 120,
   thinOut: 70,
   // ... and each kind no further than this many metres per metre of its size (the square root of its width times
-  // its height): a 1.3 m shrub to about 110 m, a stone or a mat to 40-60 m
-  reachPerMetre: 130,
+  // its height): a 1.3 m shrub to about 75 m, a stone or a mat to 30-40 m (further, they dotted the slopes)
+  reachPerMetre: 90,
   // And they thin to nothing as the camera comes this near (metres)
   tooNear: [2, 4.5],
   // How far a card leans back toward facing a camera above it (1: all the way), about this height on the plant
@@ -583,13 +583,18 @@ export async function loadScrub(
         float scrubAcross = mix(0.008, 0.992, mix(uv.x, 1.0 - uv.x, step(0.5, fract(aSprite))));
         vMapUv = vec2((mod(scrubKind, ${SCRUB.columns}.0) + scrubAcross) / ${SCRUB.columns}.0,
           1.0 - (floor(scrubKind / ${SCRUB.columns}.0) + 1.0 - mix(0.01, 0.99, uv.y)) / ${SCRUB.rows + 1}.0);
-        // The card faces the camera, wherever it is; its side toward the sun is a little lighter
+        // The card faces the site's centre, which the camera circles, so from wherever the camera is it sees the card
+        // nearly face on, and the card stays put as the camera goes round (cards turning to face the camera itself
+        // spun round with it). Its side toward the sun is a little lighter.
         vec3 scrubToEye = scrubEye - instanceMatrix[3].xyz;
-        vec2 scrubAhead = normalize(scrubToEye.xz + 1e-5);
+        vec2 scrubAhead = normalize(-instanceMatrix[3].xz + 1e-5);
         vec2 scrubRight = vec2(scrubAhead.y, -scrubAhead.x);
         vScrubLight = 0.96 + 0.1 * position.x * dot(scrubRight, scrubSun);
-        // A card a step from the eye is plainly a card: the plant thins away as the eye comes up to it
-        vScrubCover = smoothstep(${SCRUB.tooNear[0].toFixed(1)}, ${SCRUB.tooNear[1].toFixed(1)}, length(scrubToEye));`)
+        // A card a step from the eye is plainly a card: the plant thins away as the eye comes up to it, and as the
+        // eye passes beside it, where it would be seen edge on
+        float scrubFacing = abs(dot(scrubAhead, normalize(scrubToEye.xz + 1e-5)));
+        vScrubCover = smoothstep(${SCRUB.tooNear[0].toFixed(1)}, ${SCRUB.tooNear[1].toFixed(1)}, length(scrubToEye))
+          * smoothstep(0.2, 0.5, scrubFacing);`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         // Seen from above the card leans back about a point low on the plant, so it isn't looked at edge-on
         vec2 scrubX = normalize(instanceMatrix[0].xz);

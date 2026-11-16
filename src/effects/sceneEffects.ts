@@ -9,7 +9,7 @@
  */
 import * as THREE from 'three';
 import { dyno, SplatFileType, SplatMesh } from '@sparkjsdev/spark';
-import { createCamanchaca, type Camanchaca } from '@/effects/camanchaca';
+import { createCamanchaca, FOG_WISPS, type Camanchaca } from '@/effects/camanchaca';
 import { createDaylight, createSplatShadow, sunDirection, type Daylight } from '@/effects/daylight';
 import { createSeabirds } from '@/effects/seabirds';
 import { loadScrub, type Scrub } from '@/effects/scrub';
@@ -88,6 +88,8 @@ export type SceneEffects = {
   setAtmosphere: (on: boolean) => void;
   /** Gulls and pelicans flying round the site (by day) */
   setBirds: (on: boolean) => void;
+  /** A light camanchaca, always about: wisps in drifting patches, and banks of mist low over the sea far off */
+  setMist: (on: boolean) => void;
   /** Cuts the walls into stones the first time (seconds); false when the site has none */
   startQuake: () => Promise<boolean>;
   resetQuake: () => void;
@@ -163,6 +165,10 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
   metric.add(sky.group);
   const fog: Camanchaca = createCamanchaca(analysis.groundAt(0, 0), compass);
   metric.add(fog.mesh);
+  // The Bruma costera setting: a far lighter camanchaca, in patches, always about (and banks of mist on the terrain)
+  const mist: Camanchaca = createCamanchaca(analysis.groundAt(0, 0), compass, FOG_WISPS);
+  metric.add(mist.mesh);
+  let mistOn = false;
   const flowers: DesertBloom = createDesertBloom(analysis, Math.min(options.splatRadius, analysis.half));
   metric.add(flowers.mesh);
   const birds = createSeabirds(analysis.groundAt(0, 0));
@@ -223,6 +229,9 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     }
     fog.mesh.recolor.copy(night ? NIGHT.fogTint : new THREE.Color(1, 1, 1));
     fog.mesh.updateVersion();
+    mist.mesh.recolor.copy(fog.mesh.recolor);
+    mist.mesh.visible = mistOn && !fogOn;
+    if (environment) environment.light.mist.value = mistOn && !fogOn ? 1 : 0;
     // The splats' colours are multiplied as they're stored, the meshes' as light: the same tint, decoded, for those
     const landTint = tint.clone().convertSRGBToLinear();
     for (const mesh of environment?.terrain ?? []) (mesh.material as THREE.MeshBasicMaterial).color.copy(landTint);
@@ -278,6 +287,10 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
       birdsOn = on;
       apply();
     },
+    setMist(on) {
+      mistOn = on;
+      apply();
+    },
     setBloom(on) {
       bloomTarget = on ? 1 : 0;
       if (on) flowers.mesh.visible = true;
@@ -321,6 +334,7 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
       if (birds.mesh.visible) birds.update(seconds);
       camera.getWorldPosition(metricCamera);
       fog.update(seconds, metric.worldToLocal(metricCamera));
+      mist.update(seconds, metricCamera);
       for (const npc of npcs) npc.update(deltaSeconds, metricCamera);
       // Her shadow follows her: the splats are redrawn when she has moved a centimetre
       if (npcs.length && !night && !fogOn && npcs[0].feet.distanceToSquared(shadowAt) > 1e-4) {
@@ -356,6 +370,7 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
       scrub?.dispose();
       sky.dispose();
       fog.dispose();
+      mist.dispose();
       flowers.dispose();
       birds.dispose();
       earthquake?.dispose();

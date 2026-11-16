@@ -125,16 +125,16 @@ export default function SceneEffectsPanel(props: Props) {
             onChange={(on) => props.onGraphicsChange({ atmosphere: on })}
           />
           <PanelToggle
+            label="Bruma costera"
+            description="Una camanchaca muy tenue: jirones que pasan con el viento y bancos de bruma baja sobre el mar."
+            on={props.graphics.mist}
+            onChange={(on) => props.onGraphicsChange({ mist: on })}
+          />
+          <PanelToggle
             label="Aves marinas"
             description="Gaviotas que planean en círculos y una fila de pelícanos a lo largo de la costa."
             on={props.graphics.birds}
             onChange={(on) => props.onGraphicsChange({ birds: on })}
-          />
-          <PanelToggle
-            label="Efecto cine"
-            description="Brillos en el mar y la espuma, colores de cámara, bordes oscurecidos y grano fino."
-            on={props.graphics.cinema}
-            onChange={(on) => props.onGraphicsChange({ cinema: on })}
           />
         </div>
       )}

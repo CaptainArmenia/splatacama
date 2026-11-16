@@ -7,13 +7,13 @@ export type GraphicsSettings = {
   clouds: boolean;
   // The sun's disc, and the haze brighter and warmer toward it
   atmosphere: boolean;
-  // A camera's last touch over the whole frame (src/utils/cinemaEffect.ts)
-  cinema: boolean;
   // Gulls and pelicans flying round the site (src/effects/seabirds.ts)
   birds: boolean;
+  // A light camanchaca, always about (src/effects/camanchaca.ts FOG_WISPS, and mist banks on the terrain)
+  mist: boolean;
 };
 
-export const DEFAULT_GRAPHICS: GraphicsSettings = { clouds: true, atmosphere: true, cinema: false, birds: true };
+export const DEFAULT_GRAPHICS: GraphicsSettings = { clouds: true, atmosphere: true, birds: true, mist: true };
 
 const KEY = 'splatacama.graphics';
 
