@@ -27,6 +27,9 @@ const SCRUB = {
   // Plants stand as cards out to here from the site's centre (metres), thinning out over the last stretch
   reach: 120,
   thinOut: 70,
+  // ... and each kind no further than this many metres per metre of its size (the square root of its width times
+  // its height): a 1.3 m shrub to about 110 m, a stone or a mat to 40-60 m
+  reachPerMetre: 130,
   // And they thin to nothing as the camera comes this near (metres)
   tooNear: [2, 4.5],
   // How far a card leans back toward facing a camera above it (1: all the way), about this height on the plant
@@ -546,6 +549,7 @@ export async function loadScrub(
   environment.scrub.reach.value.set(edge / metersPerUnit, SCRUB.nearReach / metersPerUnit);
   environment.scrub.grain.value = grain;
   environment.scrub.grainPeriod.value = SCRUB.grainTile;
+  environment.scrub.bare.value.set(SCRUB.sand[0], SCRUB.sand[1], SCRUB.sand[2]);
   environment.scrub.info.value.set(SCRUB.tile, (edge - 1.5) / metersPerUnit, (edge + 0.5) / metersPerUnit, 1);
 
   // The image goes to the GPU as it is, not through a canvas: its see-through pixels carry their neighbours' colour,
@@ -628,11 +632,15 @@ export async function loadScrub(
         const x = plant.x + tx * SCRUB.tile;
         const z = plant.z + tz * SCRUB.tile;
         const distance = Math.hypot(x, z);
-        const half = (kinds[plant.kind].width * plant.size) / 2;
-        if (distance - 0.6 * half < edge + 0.5 || distance > SCRUB.reach) continue;
+        const kind = kinds[plant.kind];
+        const half = (kind.width * plant.size) / 2;
+        // Each kind stands out to where it would still be a few pixels across: small things (tufts, stones, mats)
+        // further out would only scatter confetti over the land
+        const reach = Math.min(SCRUB.reach, SCRUB.reachPerMetre * Math.sqrt(kind.width * kind.height) * plant.size);
+        if (distance - 0.6 * half < edge + 0.5 || distance > reach) continue;
         // Over the last stretch fewer and fewer stand, a little smaller: an edge where they all stopped would show
         // as a line across the land
-        const fade = 1 - THREE.MathUtils.smoothstep(distance, SCRUB.reach - SCRUB.thinOut, SCRUB.reach);
+        const fade = 1 - THREE.MathUtils.smoothstep(distance, reach - Math.min(SCRUB.thinOut, 0.6 * reach), reach);
         const y = heightAt(x, z);
         if (random() >= fade || Number.isNaN(y)) continue;
         if (seaZ !== undefined && y - seaZ < SCRUB.aboveSea) continue;

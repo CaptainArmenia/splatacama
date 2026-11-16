@@ -47,6 +47,9 @@ const TERRAIN_DETAIL_HEADER = `
   uniform sampler2D terrainSky;
   uniform vec3 terrainAir;
   uniform vec3 terrainWater;
+  uniform sampler2D seaNormals;
+  uniform sampler2D seaFoam;
+  uniform vec3 scrubBare;
   varying vec3 vTerrainNormal;
   varying vec2 vTerrainShore;
   // detailNoise and its slope
@@ -78,6 +81,12 @@ const AMBIENT = 0.35;
 // The sea's own colour, under the sky's reflection: the open sea in the second batch's drone photos looking down at it
 // (sRGB 50-75, 95-110, 140-160), a little darker for the sky's share
 const WATER_COLOUR = '#2f5884';
+const SEA_NORMALS_URL = '/textures/sea_normals.png';
+const SEA_FOAM_URL = '/textures/sea_foam.png';
+// The sea's slopes: their spread in each of the four layers of seaNormals (a wind sea of 4-5 m/s overall), and the
+// water's colour over rocks and sand by the shore, from the second batch's drone photos
+const SEA_SLOPE = 0.06;
+const SEA_SHALLOW = 'vec3(0.035, 0.15, 0.2)';
 // How much darker rock outcrops are than the sand between, and how steeply they stand (see TERRAIN_LIGHT_FRAGMENT)
 const ROCK_CONTRAST = 0.3;
 const ROCK_RELIEF = 6;
@@ -119,23 +128,30 @@ const TERRAIN_LIGHT_FRAGMENT = `
       / (${AMBIENT.toFixed(2)} + ${(1 - AMBIENT).toFixed(2)} * sunUp);
     float shaded = terrainDay * land * smoothstep(detailFade.y, detailFade.y + 40.0 * detailSea.y, r);
     diffuseColor.rgb = haze + (diffuseColor.rgb - haze) * mix(1.0, clamp(lit, 0.3, 1.7), shaded);
-    // Pale sand turned to the sun eases toward white instead of clipping
-    vec3 over = max(diffuseColor.rgb - 0.7, 0.0) * shaded;
+    // Pale sand (the dunes inland of the bays) eases toward a bright sand colour instead of glaring white
+    vec3 over = max(diffuseColor.rgb - 0.55, 0.0) * shaded;
     diffuseColor.rgb -= over * over / (over + 0.3);
     if (land < 1.0) {
       // Patches of rougher and calmer water drift over the sea
-      float gust = 0.55 + 0.9 * detailNoise(pm / 180.0 + terrainSwell * terrainTime * 0.01);
+      float gust = 0.6 + 0.8 * detailNoise(pm / 180.0 + terrainSwell * terrainTime * 0.01);
+      // The waves: the sea's slopes (seaNormals) at four scales, each turned a little off the swell and drifting at
+      // its waves' own speed. What a pixel can't show is averaged away in the texture's smaller copies and comes
+      // back as roughness (B holds the slopes' squared length, which averages to their spread).
       vec2 slope = vec2(0.0);
-      float rough = 0.012 * gust;
-      for (int i = 0; i < 10; i++) {
+      float rough = 0.003;
+      for (int i = 0; i < 4; i++) {
         float fi = float(i);
-        float lambda = 60.0 * pow(0.68, fi) * (0.85 + 0.3 * fract(fi * 0.754));
-        float turn = (fract(fi * 0.618 + 0.3) - 0.5) * 2.0;
+        float size = 52.0 * pow(0.36, fi);
+        float turn = (fi - 1.5) * 0.22;
         vec2 dir = mat2(cos(turn), sin(turn), -sin(turn), cos(turn)) * terrainSwell;
-        float k = 6.2832 / lambda;
-        float seen = 1.0 - smoothstep(lambda / 12.0, lambda / 4.0, foot);
-        slope += dir * 0.045 * gust * cos(k * dot(dir, pm) - sqrt(9.81 * k) * terrainTime + fi * 2.39) * seen;
-        rough += 0.001 * gust * gust * (1.0 - seen);
+        vec2 across = vec2(-dir.y, dir.x);
+        vec2 uv = vec2(dot(pm, dir), dot(pm, across)) / size + vec2(fi * 0.37, fi * 0.61)
+          - vec2(terrainTime * sqrt(9.81 * size / 37.7) / size, 0.0);
+        vec3 t = texture2D(seaNormals, uv).rgb;
+        vec2 st = t.rg * 2.0 - 1.0;
+        float spread = ${SEA_SLOPE.toFixed(3)} * 3.0 * gust;
+        slope += (dir * st.x + across * st.y) * spread;
+        rough += max(2.0 * t.b - dot(st, st), 0.0) * 0.5 * spread * spread;
       }
       vec3 waveNormal = normalize(vec3(-slope.x, -1.0, -slope.y));
       float facing = max(dot(waveNormal, toEye), 1e-3);
@@ -153,19 +169,23 @@ const TERRAIN_LIGHT_FRAGMENT = `
       // (over the sea's level, not the wave's: a wave's back seen edge-on would blow it up)
       float glitter = terrainDay * step(0.0, -terrainSun.y) * facets * terrainFresnel(dot(toEye, halfway))
         / (4.0 * max(-toEye.y, 0.1)) * 3.14159 / sunUp;
-      vec3 water = terrainWater * (1.0 - fresnel) + skyColour * fresnel + min(glitter, 6.0);
-      // Surf where the satellite saw white water (reefs, points), crests running through it toward the shore, and a
-      // thin white edge along every shore
+      // The water's own colour: turquoise over the rocks and sand by the shore, deep blue out from it
       float coast = vTerrainShore.x;
-      float broken = 0.65 * detailNoise(pm / 8.0 + vec2(0.0, terrainTime * 0.05)) + 0.35 * detailNoise(pm / 2.5);
+      vec3 body = mix(${SEA_SHALLOW}, terrainWater, smoothstep(2.0, 14.0, coast + 8.0 * (detailNoise(pm / 25.0) - 0.5)));
+      vec3 water = body * (1.0 - fresnel) + skyColour * fresnel + min(glitter, 6.0);
+      // White water, as lace (seaFoam: a share c of it shows above 1 - c), where it would be: the surf where the
+      // satellite saw white water (reefs, points), its crests running in toward the shore; a wash along every shore;
+      // and a few whitecaps out at sea where the wind gusts. Far off the lace blurs into its share.
+      float lace = 0.6 * texture2D(seaFoam, pm / 11.0 + vec2(terrainTime * 0.012, 0.0)).r
+        + 0.4 * texture2D(seaFoam, mat2(0.8, 0.6, -0.6, 0.8) * pm / 3.7 - vec2(0.0, terrainTime * 0.02)).r;
       float run = (coast + 2.5 * terrainTime) / 26.0 + 1.5 * detailNoise(pm / 70.0);
-      float crest = mix(exp(-4.0 * fract(run)), 0.25, smoothstep(2.0, 7.0, foot));
-      // (white water is lace: streaks and holes, which only blur together far off)
-      float lace = mix(smoothstep(0.35, 0.7, detailNoise(mat2(0.8, 0.6, -0.6, 0.8) * pm / 1.7 * vec2(1.0, 0.35)
-        + vec2(0.0, terrainTime * 0.15))), 0.5, smoothstep(0.5, 2.0, foot));
-      float surf = vTerrainShore.y * mix(0.3, 1.0, crest) * smoothstep(0.2, 0.55, broken) * mix(0.35, 1.0, lace);
-      float edge = 0.6 * (1.0 - smoothstep(1.0, 5.0, coast + 4.0 * (broken - 0.5)));
-      water = mix(water, vec3(0.75), 0.8 * clamp(max(surf, edge), 0.0, 1.0));
+      float crest = exp(-3.0 * fract(run));
+      float cover = vTerrainShore.y * mix(0.08, 0.6, crest);
+      cover = max(cover, 0.5 * (1.0 - smoothstep(0.0, 4.0, coast)));
+      cover = max(cover, 0.04 * smoothstep(0.75, 1.3, gust));
+      float foam = mix(smoothstep(1.0 - cover, 1.0 - cover + 0.06, lace) * step(0.002, cover), 0.7 * cover,
+        smoothstep(0.8, 4.0, foot));
+      water = mix(water, vec3(0.8), foam);
       water = water * diffuse * exp(-rm / ${HAZE_METRES.toFixed(1)}) + haze;
       diffuseColor.rgb = mix(water, diffuseColor.rgb, land);
     }`;
@@ -187,18 +207,22 @@ const TERRAIN_DETAIL_FRAGMENT = `{
     vec3 b = texture2D(detailMap, mat2(0.6, 0.8, -0.8, 0.6) * p * 0.73 + vec2(0.37, 0.61)).rgb * 2.0 - 1.0;
     float w = smoothstep(0.25, 0.75, detailNoise(p * 2.3));
     vec3 d = (a * (1.0 - w) + b * w) / sqrt((1.0 - w) * (1.0 - w) + w * w);
-    // Where the scrub map draws the bushes, the detail's own blotches of them step back
     float ks = smoothstep(scrubInfo.y, scrubInfo.z, r) * land * level * scrubInfo.w;
-    diffuseColor.rgb *= max(1.0 + d * k * (1.0 - 0.7 * ks), 0.0);
+    // The scrub map's plants as seen from above only show when the eye looks down steeply onto them: from lower
+    // down they'd lie on the land like stickers (the cut-out cards stand there instead). Beyond the cards, the map
+    // pales and blurs into the land's grain.
+    float fromAbove = smoothstep(0.3, 0.6, -toEye.y);
+    float beyond = smoothstep(${SCRUB_CARDS.toFixed(1)}, ${(3 * SCRUB_CARDS).toFixed(1)}, rm);
+    // Where the map draws the bushes, the detail's own blotches of them step back
+    diffuseColor.rgb *= max(1.0 + d * k * (1.0 - 0.7 * ks * fromAbove), 0.0);
     if (ks > 0.0) {
       vec2 sm = vec2(vTerrainPosition.x, -vTerrainPosition.z) / (detailSea.y * scrubInfo.x);
       vec3 gain = mix(scrubNear, scrubGain, smoothstep(scrubReach.x, scrubReach.y, r));
-      // The plants as seen from above would lie on the land like stickers where they're looked at from low down,
-      // and beyond where they stand as cards: there they blur into its grain and pale
-      float flatOn = 1.0 - smoothstep(0.06, 0.3, -toEye.y);
-      float beyond = smoothstep(${SCRUB_CARDS.toFixed(1)}, ${(3 * SCRUB_CARDS).toFixed(1)}, rm);
-      diffuseColor.rgb *= mix(vec3(1.0), texture2D(scrubMap, sm, max(3.5 * flatOn, 2.5 * beyond)).rgb * gain,
-        ks * (1.0 - 0.6 * beyond));
+      // (seen from low down: the bare ground between the cards near the site, the map's mean beyond them, so the
+      // colours still meet the splat's at its edge and keep the satellite's far off)
+      vec3 plants = texture2D(scrubMap, sm, 2.5 * beyond).rgb;
+      vec3 mapped = mix(mix(scrubBare, texture2D(scrubMap, sm, 12.0).rgb, beyond), plants, fromAbove * (1.0 - 0.6 * beyond));
+      diffuseColor.rgb *= mix(vec3(1.0), mapped * gain, ks);
       vec2 sg = sm * scrubInfo.x / scrubGrainPeriod;
       diffuseColor.rgb *= mix(vec3(1.0), texture2D(scrubGrain, sg).rgb / texture2D(scrubGrain, sg, 12.0).rgb, 0.6 * ks);
     }
@@ -236,6 +260,9 @@ function addTerrainDetail(material: any, texture: any, detail: TerrainDetail, an
     shader.uniforms.scrubReach = scrub.reach;
     shader.uniforms.scrubGrain = scrub.grain;
     shader.uniforms.scrubGrainPeriod = scrub.grainPeriod;
+    shader.uniforms.scrubBare = scrub.bare;
+    shader.uniforms.seaNormals = light.seaNormals;
+    shader.uniforms.seaFoam = light.seaFoam;
     shader.uniforms.terrainSun = light.sun;
     shader.uniforms.terrainSwell = light.swell;
     shader.uniforms.terrainDay = light.day;
@@ -291,6 +318,9 @@ export type TerrainLight = {
   // The haze colour (linear) and the sea's own
   air: { value: THREE.Color };
   water: { value: THREE.Color };
+  // The sea's tiling slopes and white water (public/textures, made by the pipeline's sea_textures.py)
+  seaNormals: { value: THREE.Texture };
+  seaFoam: { value: THREE.Texture };
 };
 
 // Smooth normals for the sunlight on the slopes, and for the surf, each vertex's distance from the land (metres; 0 on
@@ -396,6 +426,8 @@ export type TerrainScrub = {
   reach: { value: THREE.Vector2 };
   grain: { value: THREE.Texture };
   grainPeriod: { value: number };
+  // The map's bare ground between the plants (linear)
+  bare: { value: THREE.Vector3 };
 };
 
 export type LoadedEnvironment = {
@@ -421,10 +453,16 @@ export async function loadSceneEnvironment(
   anisotropy: number,
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<LoadedEnvironment> {
-  const [gltf, skyTexture] = await Promise.all([
+  const [gltf, skyTexture, seaNormals, seaFoam] = await Promise.all([
     new GLTFLoader().loadAsync(assetUrl(env.terrainUrl), event => onProgress?.(event.loaded, event.total)),
     env.skyUrl ? new THREE.TextureLoader().loadAsync(assetUrl(env.skyUrl)) : null,
+    new THREE.TextureLoader().loadAsync(SEA_NORMALS_URL),
+    new THREE.TextureLoader().loadAsync(SEA_FOAM_URL),
   ]);
+  for (const texture of [seaNormals, seaFoam]) {
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.anisotropy = anisotropy;
+  }
   const group = new THREE.Group();
   group.name = 'scene-environment';
   const bloom = { value: 0 };
@@ -438,6 +476,7 @@ export async function loadSceneEnvironment(
     reach: { value: new THREE.Vector2(0, 1) },
     grain: { value: blank },
     grainPeriod: { value: 1 },
+    bare: { value: new THREE.Vector3(1, 1, 1) },
   };
 
   const light: TerrainLight = {
@@ -449,6 +488,8 @@ export async function loadSceneEnvironment(
     sky: { value: skyTexture ?? blank },
     air: { value: new THREE.Color(env.background ?? '#dfe8ed') },
     water: { value: new THREE.Color(WATER_COLOUR) },
+    seaNormals: { value: seaNormals },
+    seaFoam: { value: seaFoam },
   };
   const eye = new THREE.Vector3();
 
@@ -510,6 +551,8 @@ export async function loadSceneEnvironment(
     group, terrain, sky, bloom, scrub, light,
     dispose: () => {
       blank.dispose();
+      seaNormals.dispose();
+      seaFoam.dispose();
       disposeObject(group);
     },
   };
