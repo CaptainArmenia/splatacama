@@ -6,7 +6,7 @@ import { SparkRenderer, SplatFileType, SplatMesh } from '@sparkjsdev/spark';
 import type { MapLandmark, SceneTurbines } from '@/types/cesium';
 import { assetUrl } from '@/utils/assetUrl';
 import { buildWalkArea } from '@/utils/walkArea';
-import { isVRSupported, VRWalk } from '@/utils/vrWalk';
+import { isHeadsetBrowser, isVRSupported, VRWalk } from '@/utils/vrWalk';
 import { loadSceneEnvironment, terrainAnisotropy, type LoadedEnvironment } from '@/utils/sceneEnvironment';
 import { addWindTurbines, type WindTurbines } from '@/utils/windTurbines';
 import { createMeshAntialias } from '@/utils/meshAntialias';
@@ -207,7 +207,12 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     viewerContainer.setAttribute('data-gsplat-container', 'true');
     container.appendChild(viewerContainer);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    // Multisampling is off, as Spark advises (it multiplies the cost of every splat on a computer's GPU), and the
+    // meshes' edges are smoothed by createMeshAntialias instead. But that pass doesn't run in VR, where the horizon and
+    // the hills' outlines then showed as stair-steps crawling with every move of the head. A headset's GPU resolves
+    // multisampling tile by tile at little cost, and three.js gives the VR image 4 samples when the context has it on,
+    // so a headset's own browser gets it.
+    const renderer = new THREE.WebGLRenderer({ antialias: isHeadsetBrowser() });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setClearColor(background, 1);
     renderer.domElement.style.display = 'block';
