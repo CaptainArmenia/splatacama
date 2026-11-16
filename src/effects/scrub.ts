@@ -564,7 +564,12 @@ export async function loadScrub(
   const eye = { value: new THREE.Vector3(0, 2, 0) };
   const toSun = { value: new THREE.Vector2(sun.x, sun.z).normalize() };
   const atlasSize = { value: new THREE.Vector2(image.width, image.height) };
-  const material = new THREE.MeshBasicMaterial({ map: atlas, alphaTest: SCRUB.alphaTest, side: THREE.DoubleSide });
+  // The cut-outs' edges are blended over a pixel instead of cut with an alpha test, which left them jagged (worst in
+  // VR, which has no other smoothing). So the cards are drawn after the land and the sky and before the splats; they
+  // still write depth, and only pixels with nothing of the plant are dropped.
+  const material = new THREE.MeshBasicMaterial({
+    map: atlas, alphaTest: 0.02, transparent: true, side: THREE.DoubleSide,
+  });
   material.onBeforeCompile = (shader: any) => {
     shader.uniforms.scrubTime = time;
     shader.uniforms.scrubEye = eye;
@@ -615,7 +620,11 @@ export async function loadScrub(
         transformed.x += position.y * position.y * 0.035 * scrubGust;
         transformed.z += position.y * position.y * 0.02 * cos(scrubTime * 2.6 + scrubPhase);`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vScrubLight;\nvarying float vScrubCover;\nuniform vec2 scrubAtlas;')
+      .replace('#include <common>', `#include <common>
+        varying float vScrubLight;
+        varying float vScrubCover;
+        uniform vec2 scrubAtlas;
+        float scrubHash(vec2 i) { return fract(sin(dot(i, vec2(12.9898, 78.233))) * 43758.5453); }`)
       // Far away the texture's smaller copies average twigs and gaps into less than the cut-out's threshold, and the
       // plant would thin to nothing: its cover is raised with distance instead
       .replace('#include <map_fragment>', `#include <map_fragment>
@@ -626,10 +635,16 @@ export async function loadScrub(
         // The cut-outs' outlines are smooth curves: near their edge, twigs and gaps break them up, and the edge is
         // in shade, so a plant reads as a clump, not a sticker
         float scrubInside = texture2D(map, vMapUv, 2.5).a;
-        vec2 scrubCell = floor(scrubTexel / 3.0);
-        float scrubRagged = fract(sin(dot(scrubCell, vec2(12.9898, 78.233))) * 43758.5453);
-        diffuseColor.a *= mix(0.55 + 0.9 * scrubRagged, 1.0, smoothstep(0.55, 0.95, scrubInside));
-        diffuseColor.rgb *= mix(0.72, 1.0, smoothstep(0.4, 0.9, scrubInside));`);
+        // (smooth noise, a few texels a bump: as square cells it gave the outline a sawtooth)
+        vec2 scrubCell = floor(scrubTexel / 3.0), scrubIn = fract(scrubTexel / 3.0);
+        scrubIn = scrubIn * scrubIn * (3.0 - 2.0 * scrubIn);
+        float scrubRagged = mix(
+          mix(scrubHash(scrubCell), scrubHash(scrubCell + vec2(1.0, 0.0)), scrubIn.x),
+          mix(scrubHash(scrubCell + vec2(0.0, 1.0)), scrubHash(scrubCell + vec2(1.0, 1.0)), scrubIn.x), scrubIn.y);
+        diffuseColor.a *= mix(0.3 + 1.4 * scrubRagged, 1.0, smoothstep(0.55, 0.95, scrubInside));
+        diffuseColor.rgb *= mix(0.72, 1.0, smoothstep(0.4, 0.9, scrubInside));
+        // The plant's outline is where this passes the threshold: how much of the pixel it covers, over one pixel
+        diffuseColor.a = clamp((diffuseColor.a - ${SCRUB.alphaTest.toFixed(2)}) / max(fwidth(diffuseColor.a), 1e-4) + 0.5, 0.0, 1.0);`);
   };
   material.customProgramCacheKey = () => 'scrub';
 
@@ -668,6 +683,8 @@ export async function loadScrub(
   const mesh = new THREE.InstancedMesh(geometry, material, placed.length);
   mesh.name = 'scrub';
   mesh.frustumCulled = false;
+  // Before the splats, which are blended over everything else
+  mesh.renderOrder = -1;
   const matrix = new THREE.Matrix4();
   const turn = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
