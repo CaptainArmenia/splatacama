@@ -86,7 +86,7 @@ const nextFrame = () => new Promise(resolve => setTimeout(resolve, 0));
 
 export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f5', onError }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const viewerRef = useRef<{ camera: THREE.PerspectiveCamera; controls: OrbitControls } | null>(null);
+  const viewerRef = useRef<{ camera: THREE.PerspectiveCamera; controls: OrbitControls; start: THREE.Vector3 } | null>(null);
   const vrRef = useRef<VRWalk | null>(null);
   const effectsRef = useRef<SceneEffects | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -176,7 +176,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   const resetCamera = () => {
     const viewer = viewerRef.current;
     if (!viewer) return;
-    viewer.camera.position.fromArray(INITIAL_CAMERA_POSITION);
+    viewer.camera.position.copy(viewer.start);
     viewer.controls.target.fromArray(INITIAL_CAMERA_LOOK_AT);
     viewer.controls.update();
   };
@@ -216,7 +216,16 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(50, 1, 0.1, far);
     camera.up.set(0, -1, 0);
-    camera.position.fromArray(INITIAL_CAMERA_POSITION);
+    // The start view: from the usual side and distance, raised to the site's own angle if it gives one
+    const start = new THREE.Vector3().fromArray(INITIAL_CAMERA_POSITION);
+    if (limits.startElevation) {
+      const distance = start.length();
+      const elevation = THREE.MathUtils.degToRad(limits.startElevation);
+      const level = Math.hypot(start.x, start.z);
+      start.set((start.x / level) * distance * Math.cos(elevation), -distance * Math.sin(elevation),
+        (start.z / level) * distance * Math.cos(elevation));
+    }
+    camera.position.copy(start);
     camera.lookAt(new THREE.Vector3().fromArray(INITIAL_CAMERA_LOOK_AT));
     // VR moves the visitor by moving this rig; on the desktop it stays put
     const rig = new THREE.Group();
@@ -238,21 +247,10 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     controls.keys = { LEFT: 'KeyA', UP: 'KeyW', RIGHT: 'KeyD', BOTTOM: 'KeyS' };
     controls.listenToKeyEvents(window);
     controls.target.fromArray(INITIAL_CAMERA_LOOK_AT);
+    // The camera is limited in distance only (and kept above the ground, below): never in angle
     controls.minDistance = limits.minDistance ?? MIN_DISTANCE;
     controls.maxDistance = limits.maxDistance;
-    // The polar angle is measured from straight above the site (the controls follow camera.up); this also lifts the
-    // start camera and the reset button's to the lowest allowed angle
-    if (limits.minElevation) controls.maxPolarAngle = THREE.MathUtils.degToRad(90 - limits.minElevation);
-    // The azimuth is measured the controls' way: in a frame turned so camera.up points along +y
-    if (limits.maxOrbit) {
-      const yUp = new THREE.Quaternion().setFromUnitVectors(camera.up, new THREE.Vector3(0, 1, 0));
-      const start = camera.position.clone().sub(controls.target).applyQuaternion(yUp);
-      const startAzimuth = Math.atan2(start.x, start.z);
-      const arc = THREE.MathUtils.degToRad(limits.maxOrbit);
-      controls.minAzimuthAngle = startAzimuth - arc;
-      controls.maxAzimuthAngle = startAzimuth + arc;
-    }
-    viewerRef.current = { camera, controls };
+    viewerRef.current = { camera, controls, start };
 
     // Keep the camera above what's under it; true if it had to move
     let analysis: SiteAnalysis | null = null;
@@ -369,7 +367,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
         const siteAnalysis = analyzeSite(file, SITE_RADIUS_UNITS * metersPerUnit, (limits.radius + 2) * metersPerUnit);
         // Where a visitor can walk in VR, read off the splats; only headsets need it, and only at sites that hold up at
         // eye level
-        const walkArea = (!limits.minElevation && !limits.maxOrbit && await isVRSupported())
+        const walkArea = (limits.vr !== false && await isVRSupported())
           ? buildWalkArea(bytes, metersPerFileUnit, { x: INITIAL_CAMERA_POSITION[0], z: -INITIAL_CAMERA_POSITION[2] },
             SITE_RADIUS_UNITS * metersPerUnit)
           : null;

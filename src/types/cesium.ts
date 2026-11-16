@@ -56,13 +56,13 @@ export interface SceneView {
   maxDistance?: number;
   // How far from the site's centre the camera may go, measured on the ground: about where the splat starts to fade
   radius?: number;
-  // For a site photographed only from high up, where the splat is blur and needles at eye level: the lowest the
-  // camera may look down at the site from, in degrees above the horizon. Such a site has no VR, which walks at eye
-  // level.
-  minElevation?: number;
-  // For a site photographed from one side only: how far the camera may orbit from the start camera's side, in degrees
-  // either way. Such a site has no VR either.
-  maxOrbit?: number;
+  // Where the start camera (and the reset button's) looks down from, in degrees above the horizon, for a site
+  // photographed only from high up: it opens on the view that holds up best. Only a starting view: the camera is
+  // never limited in angle, only in distance and to staying above the ground (the user's rule).
+  startElevation?: number;
+  // false: no VR button. For sites photographed from high up or from one side only, where walking at eye level
+  // would go through blur and needles.
+  vr?: boolean;
   // How close the camera may zoom in to the point it orbits (the default is 1)
   minDistance?: number;
 }

@@ -28,8 +28,9 @@ const SCRUB = {
   reach: 120,
   thinOut: 70,
   // ... and each kind no further than this many metres per metre of its size (the square root of its width times
-  // its height): a 1.3 m shrub to about 75 m, a stone or a mat to 30-40 m (further, they dotted the slopes)
-  reachPerMetre: 90,
+  // its height): a 1.3 m shrub to about 22 m, a stone or a mat to 8-12 m (further, they were flat coloured blobs on
+  // the slopes; the terrain's map carries them there as specks and shadows)
+  reachPerMetre: 26,
   // And they thin to nothing as the camera comes this near (metres)
   tooNear: [2, 4.5],
   // How far a card leans back toward facing a camera above it (1: all the way), about this height on the plant
@@ -589,7 +590,8 @@ export async function loadScrub(
         vec3 scrubToEye = scrubEye - instanceMatrix[3].xyz;
         vec2 scrubAhead = normalize(-instanceMatrix[3].xz + 1e-5);
         vec2 scrubRight = vec2(scrubAhead.y, -scrubAhead.x);
-        vScrubLight = 0.96 + 0.1 * position.x * dot(scrubRight, scrubSun);
+        // ... and its foot darker, in the plant's own shade, so it stands on the ground instead of on top of it
+        vScrubLight = (0.96 + 0.1 * position.x * dot(scrubRight, scrubSun)) * mix(0.5, 1.0, smoothstep(0.0, 0.55, uv.y));
         // A card a step from the eye is plainly a card: the plant thins away as the eye comes up to it, and as the
         // eye passes beside it, where it would be seen edge on
         float scrubFacing = abs(dot(scrubAhead, normalize(scrubToEye.xz + 1e-5)));
@@ -619,7 +621,14 @@ export async function loadScrub(
         diffuseColor.rgb *= vScrubLight;
         vec2 scrubTexel = vMapUv * scrubAtlas;
         float scrubSmaller = 0.5 * log2(max(dot(dFdx(scrubTexel), dFdx(scrubTexel)), dot(dFdy(scrubTexel), dFdy(scrubTexel))));
-        diffuseColor.a *= (1.0 + 0.25 * max(scrubSmaller, 0.0)) * vScrubCover;`);
+        diffuseColor.a *= (1.0 + 0.25 * max(scrubSmaller, 0.0)) * vScrubCover;
+        // The cut-outs' outlines are smooth curves: near their edge, twigs and gaps break them up, and the edge is
+        // in shade, so a plant reads as a clump, not a sticker
+        float scrubInside = texture2D(map, vMapUv, 2.5).a;
+        vec2 scrubCell = floor(scrubTexel / 3.0);
+        float scrubRagged = fract(sin(dot(scrubCell, vec2(12.9898, 78.233))) * 43758.5453);
+        diffuseColor.a *= mix(0.55 + 0.9 * scrubRagged, 1.0, smoothstep(0.55, 0.95, scrubInside));
+        diffuseColor.rgb *= mix(0.72, 1.0, smoothstep(0.4, 0.9, scrubInside));`);
   };
   material.customProgramCacheKey = () => 'scrub';
 

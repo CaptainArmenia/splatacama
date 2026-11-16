@@ -71,7 +71,7 @@ const SKY_LIGHT_GLSL = `
   vec3 terrainHazeTint(vec3 toward) {
     vec2 a = normalize(toward.xz + 1e-5), b = normalize(terrainSun.xz + 1e-5);
     float side = 0.5 + 0.5 * dot(a, b);
-    return mix(vec3(1.0), mix(vec3(0.86, 0.9, 0.97), vec3(1.22, 1.14, 1.0), side * side), terrainGlow);
+    return mix(vec3(1.0), mix(vec3(0.8, 0.87, 0.98), vec3(1.32, 1.18, 0.97), side * side), terrainGlow);
   }`;
 
 // The sky: below the clouds, the haze near the horizon tinted toward the sun's side; the clouds, their side toward the
@@ -100,7 +100,7 @@ const SKY_FRAGMENT = `{
       diffuseColor.rgb = mix(diffuseColor.rgb, cloud, cover);
     }
     float toSun = max(dot(d, terrainSun), 0.0);
-    diffuseColor.rgb += terrainGlow * (1.0 - cover) * (vec3(1.0, 0.93, 0.8) * (0.35 * pow(toSun, 80.0) + 0.1 * pow(toSun, 8.0))
+    diffuseColor.rgb += terrainGlow * (1.0 - cover) * (vec3(1.0, 0.93, 0.8) * (0.55 * pow(toSun, 60.0) + 0.22 * pow(toSun, 6.0))
       + vec3(6.0) * smoothstep(0.99996, 0.99999, toSun));
   }`;
 
@@ -143,6 +143,25 @@ const TERRAIN_DETAIL_HEADER = `
     return vec3(mix(mix(a, b, u.x), mix(c, d, u.x), u.y),
                 du.x * (b - a + (a - b - c + d) * u.y), du.y * (c - a + (a - b - c + d) * u.x));
   }
+  // Gullies down the hillsides: stripes running down the fall line (\`down\`), in jittered cells blended smoothly, so
+  // they bend with the slope without seams. The height (-1 to 1) and its slope per cell.
+  vec3 terrainGullies(vec2 p, vec2 down) {
+    vec2 across = vec2(-down.y, down.x);
+    vec2 i = floor(p), f = fract(p);
+    vec3 sum = vec3(0.0);
+    float weights = 0.0;
+    for (int y = -1; y <= 1; y++) {
+      for (int x = -1; x <= 1; x++) {
+        vec2 cell = vec2(float(x), float(y));
+        vec2 r = f - cell - vec2(detailHash(i + cell), detailHash(i + cell + 31.7));
+        float w = exp(-1.6 * dot(r, r));
+        float phase = 6.2832 * (2.0 * dot(r, across) + detailHash(i + cell + 7.1));
+        sum += w * vec3(cos(phase), -12.566 * sin(phase) * across);
+        weights += w;
+      }
+    }
+    return sum / weights;
+  }
   float terrainFresnel(float c) { return 0.02 + 0.98 * pow(1.0 - clamp(c, 0.0, 1.0), 5.0); }`;
 
 // The texture holds colour over its mean, halved, so mipmaps fade it to no change far off. Two samplings at different
@@ -168,11 +187,17 @@ const SEA_NORMALS_URL = '/textures/sea_normals.png';
 const SEA_FOAM_URL = '/textures/sea_foam.png';
 // The sea's slopes: their spread in each of the four layers of seaNormals (a wind sea of 4-5 m/s overall), and the
 // water's colour over rocks and sand by the shore, from the second batch's drone photos
-const SEA_SLOPE = 0.06;
-const SEA_SHALLOW = 'vec3(0.035, 0.15, 0.2)';
+const SEA_SLOPE = 0.045;
+const SEA_SHALLOW = 'vec3(0.02, 0.085, 0.1)';
 // How much darker rock outcrops are than the sand between, and how steeply they stand (see TERRAIN_LIGHT_FRAGMENT)
-const ROCK_CONTRAST = 0.3;
+const ROCK_CONTRAST = 0.2;
 const ROCK_RELIEF = 6;
+// Gullies on the hillsides: their cells (metres; two gullies a cell) and depth (metres)
+const GULLY_CELL = 44;
+const GULLY_DEPTH = 2;
+// With the atmosphere, how much more sea air the far land is seen through, and over what distance (metres)
+const DEPTH_HAZE = 0.4;
+const DEPTH_HAZE_METRES = 4000;
 // Plants stand as cards out to about here (metres; effects/scrub.ts SCRUB.reach)
 const SCRUB_CARDS = 120;
 // Sea vertices further than this from the land (metres) count as this far, for the surf
@@ -194,6 +219,7 @@ const TERRAIN_LIGHT_FRAGMENT = `
     vec3 haze = diffuse * terrainAir * (1.0 - exp(-rm / ${HAZE_METRES.toFixed(1)}));
     vec3 slopeNormal = normalize(vTerrainNormal);
     slopeNormal *= slopeNormal.y > 0.0 ? -1.0 : 1.0;
+    vec3 smoothNormal = slopeNormal;
     // Rock and sand at the few metres the satellite's 10 m pixels can't show, from past the splat's edge to a couple
     // of kilometres: outcrops darker and standing out of the sand (their sides lit or not), each scale fading out as
     // a pixel grows past it
@@ -208,6 +234,23 @@ const TERRAIN_LIGHT_FRAGMENT = `
       vec2 bump = large.yz * big / 26.0 + 0.6 * fine.yz * small / 8.0;
       bump = mat2(0.8, 0.6, -0.6, 0.8) * bump * ${ROCK_RELIEF.toFixed(1)} * rocky;
       slopeNormal = normalize(slopeNormal + vec3(-bump.x, 0.0, -bump.y));
+    }
+    // Gullies down the slopes, which the elevation data's 30 m can't hold: two sizes, lit by the sun, their bottoms a
+    // little darker, each fading as a pixel grows past it. Not on level land, nor near the site, where the
+    // reconstruction has the real ones.
+    float steep = length(smoothNormal.xz);
+    float gullied = land * smoothstep(0.06, 0.3, steep) * smoothstep(detailFade.y, detailFade.y + 15.0 * detailSea.y, r)
+      * (1.0 - smoothstep(2500.0, 5000.0, rm));
+    if (gullied > 0.0) {
+      vec2 down = normalize(smoothNormal.xz);
+      vec3 wide = terrainGullies(pm / ${GULLY_CELL.toFixed(1)}, down);
+      vec3 narrow = terrainGullies(pm / ${(GULLY_CELL / 3).toFixed(1)} + 13.0, down);
+      float seeWide = 1.0 - smoothstep(${(GULLY_CELL / 10).toFixed(1)}, ${(GULLY_CELL / 3).toFixed(1)}, foot);
+      float seeNarrow = 1.0 - smoothstep(${(GULLY_CELL / 30).toFixed(2)}, ${(GULLY_CELL / 9).toFixed(2)}, foot);
+      vec2 grad = ${GULLY_DEPTH.toFixed(2)} * gullied * (wide.yz * seeWide / ${GULLY_CELL.toFixed(1)}
+        + 0.25 * narrow.yz * seeNarrow / ${(GULLY_CELL / 3).toFixed(1)});
+      slopeNormal = normalize(slopeNormal + vec3(-grad.x, 0.0, -grad.y));
+      diffuseColor.rgb *= 1.0 - 0.14 * gullied * (seeWide * max(-wide.x, 0.0) + 0.5 * seeNarrow * max(-narrow.x, 0.0));
     }
     // The beaches (low land by the water, not cliff tops): wet sand along the water's edge, and each wave running up
     // a few metres as a thin sheet of water with foam at its edge, then draining back
@@ -227,7 +270,10 @@ const TERRAIN_LIGHT_FRAGMENT = `
       diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.8), 0.8 * sheetEdge);
     }
     float sunUp = max(-terrainSun.y, 0.1);
-    float lit = (${AMBIENT.toFixed(2)} + ${(1 - AMBIENT).toFixed(2)} * max(dot(slopeNormal, terrainSun), 0.0))
+    // With the atmosphere the sun's light is warm and the sky's cool
+    vec3 sunColour = mix(vec3(1.0), vec3(1.07, 1.0, 0.9), terrainGlow);
+    vec3 skyLight = mix(vec3(1.0), vec3(0.86, 0.95, 1.14), terrainGlow);
+    vec3 lit = (${AMBIENT.toFixed(2)} * skyLight + ${(1 - AMBIENT).toFixed(2)} * max(dot(slopeNormal, terrainSun), 0.0) * sunColour)
       / (${AMBIENT.toFixed(2)} + ${(1 - AMBIENT).toFixed(2)} * sunUp);
     float shaded = terrainDay * land * smoothstep(detailFade.y, detailFade.y + 40.0 * detailSea.y, r);
     // The clouds' shadows drift over the land (not near the site: the splat's own light is fixed). Where the sun is
@@ -240,13 +286,24 @@ const TERRAIN_LIGHT_FRAGMENT = `
     }
     vec3 shadowLight = mix(vec3(1.0), vec3(0.92, 0.97, 1.12) * ${AMBIENT.toFixed(2)}
       / (${AMBIENT.toFixed(2)} + ${(1 - AMBIENT).toFixed(2)} * sunUp), shadowed);
-    diffuseColor.rgb = haze + (diffuseColor.rgb - haze) * mix(1.0, clamp(lit, 0.3, 1.7), shaded) * mix(vec3(1.0), shadowLight, land);
-    // The haze is brighter and warmer toward the sun and bluer away from it, not the same all around
+    // The land itself, out of the haze baked over it, lit
+    // (taken out only as far as the haze leaves a quarter of it: further, dividing by it blew up the texture's noise)
+    float transmit = max(exp(-rm / ${HAZE_METRES.toFixed(1)}), 0.25);
+    vec3 ground = max(diffuseColor.rgb - haze, 0.0) / transmit;
+    ground *= mix(vec3(1.0), clamp(lit, 0.3, 1.7), shaded) * mix(vec3(1.0), shadowLight, land);
+    // Pale sand (the dunes inland of the bays) keeps a sand colour, its brightness eased and warm: plain, it came out
+    // a colourless white that read as snow
+    float bright = dot(ground, vec3(0.2126, 0.7152, 0.0722));
+    float overBright = max(bright - 0.3, 0.0);
+    float keptBright = bright - overBright * overBright / (overBright + 0.25);
+    ground = mix(ground, mix(ground * keptBright / max(bright, 1e-4), keptBright * vec3(1.2, 1.0, 0.72),
+      0.8 * smoothstep(0.24, 0.5, bright)), shaded);
+    // The haze is brighter and warmer toward the sun and bluer away from it, not the same all around, and with the
+    // atmosphere the sea air thickens with distance, so ridge after ridge steps back
     vec3 hazeTint = terrainHazeTint(-toEye);
-    diffuseColor.rgb += haze * (hazeTint - 1.0) * land;
-    // Pale sand (the dunes inland of the bays) eases toward a bright sand colour instead of glaring white
-    vec3 over = max(diffuseColor.rgb - 0.55, 0.0) * shaded;
-    diffuseColor.rgb -= over * over / (over + 0.3);
+    diffuseColor.rgb = haze * mix(vec3(1.0), hazeTint, land) + ground * transmit;
+    diffuseColor.rgb = mix(diffuseColor.rgb, diffuse * terrainAir * hazeTint,
+      land * terrainGlow * ${DEPTH_HAZE.toFixed(2)} * (1.0 - exp(-rm / ${DEPTH_HAZE_METRES.toFixed(1)})));
     if (land < 1.0) {
       // Patches of rougher and calmer water drift over the sea
       float gust = 0.6 + 0.8 * detailNoise(pm / 180.0 + terrainSwell * terrainTime * 0.01);
@@ -254,7 +311,7 @@ const TERRAIN_LIGHT_FRAGMENT = `
       // its waves' own speed. What a pixel can't show is averaged away in the texture's smaller copies and comes
       // back as roughness (B holds the slopes' squared length, which averages to their spread).
       vec2 slope = vec2(0.0);
-      float rough = 0.003;
+      float rough = 0.006;
       for (int i = 0; i < 4; i++) {
         float fi = float(i);
         float size = 52.0 * pow(0.36, fi);
@@ -295,7 +352,8 @@ const TERRAIN_LIGHT_FRAGMENT = `
       // The water's own colour: turquoise over the rocks and sand by the shore, deep blue out from it
       float coast = vTerrainShore.x;
       vec3 body = mix(${SEA_SHALLOW}, terrainWater, smoothstep(2.0, 14.0, coast + 8.0 * (detailNoise(pm / 25.0) - 0.5)));
-      vec3 water = body * (1.0 - 0.3 * shadowed) * (1.0 - fresnel) + skyColour * fresnel + min(glitter, 6.0) * (1.0 - shadowed);
+      vec3 water = body * (1.0 - 0.3 * shadowed) * (1.0 - fresnel) + skyColour * fresnel
+        + min(0.5 * glitter, 2.5) * (1.0 - shadowed);
       // White water where it would be: breaking waves where the satellite saw white water (reefs, points) and,
       // gentler, along every shore -- lines running in parallel to the shore, each a bright front with foam trailing
       // out behind it, thinning into lace (seaFoam) -- a thin edge where the water meets the land, and a few
@@ -312,13 +370,13 @@ const TERRAIN_LIGHT_FRAGMENT = `
       float density = breaking * (front * (0.35 + 0.65 * lace) + exp(-4.0 * behind) * lace);
       float surf = smoothstep(0.3, 0.65, density);
       float waterline = (1.0 - smoothstep(0.0, 2.0, coast)) * smoothstep(0.35, 0.65, lace);
-      float caps = 0.04 * smoothstep(0.75, 1.3, gust);
+      float caps = 0.015 * smoothstep(0.85, 1.3, gust);
       float whitecaps = smoothstep(1.0 - caps, 1.0 - caps + 0.1, lace) * step(0.002, caps);
       float foam = mix(max(max(surf, waterline), whitecaps),
         0.12 * breaking + 0.15 * (1.0 - smoothstep(0.0, 2.0, coast)) + 0.5 * caps, smoothstep(1.0, 5.0, foot));
-      // The water churned up inside the surf, paler and greener
-      water = mix(water, water * 0.6 + vec3(0.1, 0.17, 0.17), 0.5 * breaking * exp(-3.0 * behind));
-      water = mix(water, vec3(0.78, 0.8, 0.8), 0.85 * clamp(foam, 0.0, 1.0));
+      // The water churned up inside the surf, a little milky
+      water = mix(water, water * 0.85 + vec3(0.04, 0.05, 0.05), 0.4 * breaking * exp(-3.0 * behind));
+      water = mix(water, vec3(0.7, 0.72, 0.72), 0.8 * clamp(foam, 0.0, 1.0));
       water = water * diffuse * exp(-rm / ${HAZE_METRES.toFixed(1)}) + haze * hazeTint;
       diffuseColor.rgb = mix(water, diffuseColor.rgb, land);
     }
@@ -346,8 +404,9 @@ const TERRAIN_DETAIL_FRAGMENT = `{
     float level = smoothstep(0.6, 0.85, abs(normal.y));
     float k = smoothstep(detailFade.x, detailFade.y, r) * (1.0 - smoothstep(detailFade.z, detailFade.w, r)) * land * level;
     vec2 p = vTerrainPosition.xz / detailPeriod;
+    vec2 pb = mat2(0.6, 0.8, -0.8, 0.6) * p * 0.73 + vec2(0.37, 0.61);
     vec3 a = texture2D(detailMap, p).rgb * 2.0 - 1.0;
-    vec3 b = texture2D(detailMap, mat2(0.6, 0.8, -0.8, 0.6) * p * 0.73 + vec2(0.37, 0.61)).rgb * 2.0 - 1.0;
+    vec3 b = texture2D(detailMap, pb).rgb * 2.0 - 1.0;
     float w = smoothstep(0.25, 0.75, detailNoise(p * 2.3));
     vec3 d = (a * (1.0 - w) + b * w) / sqrt((1.0 - w) * (1.0 - w) + w * w);
     float ks = smoothstep(scrubInfo.y, scrubInfo.z, r) * land * level * scrubInfo.w;
@@ -366,7 +425,12 @@ const TERRAIN_DETAIL_FRAGMENT = `{
       vec3 plants = texture2D(scrubMap, sm, 2.5 * beyond).rgb;
       // (from above too, past the nearest plants they show at half strength: at full they read as a dotted carpet)
       float shown = fromAbove * mix(1.0, 0.5, smoothstep(30.0, 120.0, rm)) * (1.0 - 0.6 * beyond);
-      vec3 mapped = mix(mix(scrubBare, texture2D(scrubMap, sm, 12.0).rgb, max(beyond, fromAbove)), plants, shown);
+      // From lower down, the plants and their shadows only darken the land, in its own colour: specks of scrub on
+      // the slopes rather than coloured stickers
+      vec3 specks = scrubBare * dot(texture2D(scrubMap, sm, 1.0 + 2.5 * beyond).rgb, vec3(0.3, 0.59, 0.11))
+        / dot(scrubBare, vec3(0.3, 0.59, 0.11));
+      vec3 low = mix(scrubBare, specks, 0.7 * (1.0 - beyond));
+      vec3 mapped = mix(mix(low, texture2D(scrubMap, sm, 12.0).rgb, max(beyond, fromAbove)), plants, shown);
       diffuseColor.rgb *= mix(vec3(1.0), mapped * gain, ks);
       vec2 sg = sm * scrubInfo.x / scrubGrainPeriod;
       diffuseColor.rgb *= mix(vec3(1.0), texture2D(scrubGrain, sg).rgb / texture2D(scrubGrain, sg, 12.0).rgb, 0.6 * ks);
