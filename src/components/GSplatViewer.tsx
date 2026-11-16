@@ -222,6 +222,15 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     // The polar angle is measured from straight above the site (the controls follow camera.up); this also lifts the
     // start camera and the reset button's to the lowest allowed angle
     if (limits.minElevation) controls.maxPolarAngle = THREE.MathUtils.degToRad(90 - limits.minElevation);
+    // The azimuth is measured the controls' way: in a frame turned so camera.up points along +y
+    if (limits.maxOrbit) {
+      const yUp = new THREE.Quaternion().setFromUnitVectors(camera.up, new THREE.Vector3(0, 1, 0));
+      const start = camera.position.clone().sub(controls.target).applyQuaternion(yUp);
+      const startAzimuth = Math.atan2(start.x, start.z);
+      const arc = THREE.MathUtils.degToRad(limits.maxOrbit);
+      controls.minAzimuthAngle = startAzimuth - arc;
+      controls.maxAzimuthAngle = startAzimuth + arc;
+    }
     viewerRef.current = { camera, controls };
 
     // Keep the camera above what's under it; true if it had to move
@@ -339,7 +348,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
         const siteAnalysis = analyzeSite(file, SITE_RADIUS_UNITS * metersPerUnit, (limits.radius + 2) * metersPerUnit);
         // Where a visitor can walk in VR, read off the splats; only headsets need it, and only at sites that hold up at
         // eye level
-        const walkArea = (!limits.minElevation && await isVRSupported())
+        const walkArea = (!limits.minElevation && !limits.maxOrbit && await isVRSupported())
           ? buildWalkArea(bytes, metersPerFileUnit, { x: INITIAL_CAMERA_POSITION[0], z: -INITIAL_CAMERA_POSITION[2] },
             SITE_RADIUS_UNITS * metersPerUnit)
           : null;

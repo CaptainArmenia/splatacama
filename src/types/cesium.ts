@@ -60,6 +60,9 @@ export interface SceneView {
   // camera may look down at the site from, in degrees above the horizon. Such a site has no VR, which walks at eye
   // level.
   minElevation?: number;
+  // For a site photographed from one side only: how far the camera may orbit from the start camera's side, in degrees
+  // either way. Such a site has no VR either.
+  maxOrbit?: number;
   // How close the camera may zoom in to the point it orbits (the default is 1)
   minDistance?: number;
 }
