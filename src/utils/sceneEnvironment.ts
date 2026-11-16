@@ -438,6 +438,14 @@ const TERRAIN_DETAIL_FRAGMENT = `{
     vec3 b = texture2D(detailMap, pb).rgb * 2.0 - 1.0;
     float w = smoothstep(0.25, 0.75, detailNoise(p * 2.3));
     vec3 d = (a * (1.0 - w) + b * w) / sqrt((1.0 - w) * (1.0 - w) + w * w);
+    // The grain is the ground round the site as its photos saw it from above. Laid over land seen from low down or
+    // from far off it is a flat print stretched into streaks, and every hill wears the site's own stones: there it
+    // fades to a trace (by how far it is from the eye, and by how much ground a pixel covers, between its long and
+    // short sides)
+    vec2 px = dFdx(pm), py = dFdy(pm);
+    float covered = sqrt(foot * sqrt(max(abs(px.x * py.y - px.y * py.x), 1e-8)));
+    float fromEye = length(terrainEye - vTerrainPosition) / detailSea.y;
+    k *= mix(0.12, 1.0, (1.0 - smoothstep(0.05, 0.3, covered)) * (1.0 - smoothstep(20.0, 55.0, fromEye)));
     // Where the texture is the drone photos' own mosaic, the land has its real plants, rocks, gullies and sunlight:
     // the scrub map, the mottling, the gullies and the slopes' shading only come in beyond it
     float beyondPhoto = 1.0 - detailPhoto * texture2D(photoMask, vMapUv).r;
@@ -459,7 +467,7 @@ const TERRAIN_DETAIL_FRAGMENT = `{
       float shown = fromAbove * mix(1.0, 0.5, smoothstep(30.0, 120.0, rm)) * (1.0 - 0.6 * beyond);
       // From lower down, the plants and their shadows only darken the land, in its own colour: specks of scrub on
       // the slopes rather than coloured stickers
-      vec3 specks = scrubBare * dot(texture2D(scrubMap, sm, 1.0 + 2.5 * beyond).rgb, vec3(0.3, 0.59, 0.11))
+      vec3 specks = scrubBare * dot(texture2D(scrubMap, sm, 1.0 + 2.5 * beyond + 2.0 * smoothstep(0.05, 0.3, covered)).rgb, vec3(0.3, 0.59, 0.11))
         / dot(scrubBare, vec3(0.3, 0.59, 0.11));
       vec3 low = mix(scrubBare, specks, 0.7 * (1.0 - beyond));
       vec3 mapped = mix(mix(low, texture2D(scrubMap, sm, 12.0).rgb, max(beyond, fromAbove)), plants, shown);
