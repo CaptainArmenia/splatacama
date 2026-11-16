@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import PanelToggle from '@/components/PanelToggle';
+import type { GraphicsSettings } from '@/utils/graphicsSettings';
 
 export type QuakeState = 'idle' | 'preparing' | 'shaken' | 'unavailable';
 
@@ -14,6 +15,8 @@ type Props = {
   onFogChange: (on: boolean) => void;
   bloom: boolean;
   onBloomChange: (on: boolean) => void;
+  graphics: GraphicsSettings;
+  onGraphicsChange: (change: Partial<GraphicsSettings>) => void;
   quake: QuakeState;
   onStartQuake: () => void;
   onResetQuake: () => void;
@@ -42,7 +45,7 @@ export default function SceneEffectsPanel(props: Props) {
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-72 max-w-[calc(100vw-2rem)] space-y-1 rounded-lg border border-gray-700 bg-gray-900/90 p-2 text-white shadow-lg backdrop-blur-sm">
+        <div className="absolute right-0 mt-2 max-h-[calc(100vh-6rem)] w-72 max-w-[calc(100vw-2rem)] space-y-1 overflow-y-auto rounded-lg border border-gray-700 bg-gray-900/90 p-2 text-white shadow-lg backdrop-blur-sm">
           <PanelToggle
             label="Noche"
             description="Las estrellas y la Vía Láctea reales sobre este lugar, a la hora elegida."
@@ -105,6 +108,28 @@ export default function SceneEffectsPanel(props: Props) {
               )}
             </div>
           </div>
+
+          <div className="border-t border-gray-700 px-2 pt-2 text-xs font-medium uppercase tracking-wide text-gray-400">
+            Gráficos
+          </div>
+          <PanelToggle
+            label="Nubes"
+            description="Nubes que pasan con el viento, su sombra sobre los cerros y su reflejo en el mar."
+            on={props.graphics.clouds}
+            onChange={(on) => props.onGraphicsChange({ clouds: on })}
+          />
+          <PanelToggle
+            label="Luz atmosférica"
+            description="El sol en el cielo y la bruma más clara y cálida hacia él."
+            on={props.graphics.atmosphere}
+            onChange={(on) => props.onGraphicsChange({ atmosphere: on })}
+          />
+          <PanelToggle
+            label="Efecto cine"
+            description="Brillos en el mar y la espuma, colores de cámara, bordes oscurecidos y grano fino."
+            on={props.graphics.cinema}
+            onChange={(on) => props.onGraphicsChange({ cinema: on })}
+          />
         </div>
       )}
     </div>

@@ -14,8 +14,9 @@ import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
  */
 
 export type MeshAntialias = {
-  /** Draws `scene` as renderer.render would, with the meshes smoothed; `splats` is the SparkRenderer */
-  render: (scene: THREE.Scene, camera: THREE.Camera, splats: THREE.Object3D) => void;
+  /** Draws `scene` as renderer.render would, with the meshes smoothed; `splats` is the SparkRenderer. `output` takes
+   * the frame instead of the screen (it needs a depth buffer). */
+  render: (scene: THREE.Scene, camera: THREE.Camera, splats: THREE.Object3D, output?: THREE.WebGLRenderTarget | null) => void;
   dispose: () => void;
 };
 
@@ -48,7 +49,7 @@ export function createMeshAntialias(renderer: THREE.WebGLRenderer): MeshAntialia
   const hidden: THREE.Object3D[] = [];
 
   return {
-    render(scene, camera, splats) {
+    render(scene, camera, splats, output = null) {
       renderer.getDrawingBufferSize(size);
       if (target.width !== size.x || target.height !== size.y) target.setSize(size.x, size.y);
       material.uniforms.resolution.value.set(1 / size.x, 1 / size.y);
@@ -59,8 +60,8 @@ export function createMeshAntialias(renderer: THREE.WebGLRenderer): MeshAntialia
       renderer.render(scene, camera);
       splats.visible = true;
 
-      // 2. To the screen, smoothed, with their depth
-      renderer.setRenderTarget(null);
+      // 2. To the screen (or `output`), smoothed, with their depth
+      renderer.setRenderTarget(output);
       quad.render(renderer);
 
       // 3. The splats over them, with everything else hidden for this pass (splat meshes aren't drawn themselves:

@@ -43,6 +43,9 @@ const UNBLOOM_SECONDS = 2;
 // Peak ground acceleration, in g: a strong earthquake close to its epicentre
 const QUAKE_STRENGTH = 0.8;
 
+// How much of the sky the clouds cover when they're on (0 to 1; see sceneEnvironment.ts): fair-weather cumulus
+const CLOUD_COVER = 0.62;
+
 // Which way the Pacific's swell runs onto the coast (compass bearing): in from the south-west
 const SWELL_BEARING = 60;
 
@@ -78,6 +81,10 @@ export type SceneEffects = {
   setNight: (on: boolean, hour: number) => void;
   setFog: (on: boolean) => void;
   setBloom: (on: boolean) => void;
+  /** Clouds in the sky, their shadows on the land and their reflection in the sea */
+  setClouds: (on: boolean) => void;
+  /** The sun's disc, and the haze brighter and warmer toward it */
+  setAtmosphere: (on: boolean) => void;
   /** Cuts the walls into stones the first time (seconds); false when the site has none */
   startQuake: () => Promise<boolean>;
   resetQuake: () => void;
@@ -253,6 +260,12 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     setFog(on) {
       fogOn = on;
       apply();
+    },
+    setClouds(on) {
+      if (environment) environment.light.clouds.value = on ? CLOUD_COVER : 0;
+    },
+    setAtmosphere(on) {
+      if (environment) environment.light.glow.value = on ? 1 : 0;
     },
     setBloom(on) {
       bloomTarget = on ? 1 : 0;

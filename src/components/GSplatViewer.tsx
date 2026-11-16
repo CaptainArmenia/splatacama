@@ -13,6 +13,8 @@ import { createMeshAntialias } from '@/utils/meshAntialias';
 import { analyzeSite, parseSplat, type SiteAnalysis } from '@/effects/siteAnalysis';
 import { createSceneEffects, type SceneEffects } from '@/effects/sceneEffects';
 import SceneEffectsPanel, { type QuakeState } from '@/components/SceneEffectsPanel';
+import { createCinemaEffect } from '@/utils/cinemaEffect';
+import { DEFAULT_GRAPHICS, loadGraphics, saveGraphics, type GraphicsSettings } from '@/utils/graphicsSettings';
 import SceneSound from '@/components/SceneSound';
 import { createSceneSound, type SceneSound as SceneSoundEngine } from '@/utils/sceneSound';
 
@@ -98,6 +100,19 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   const [hour, setHour] = useState(22);
   const [fog, setFog] = useState(false);
   const [bloom, setBloom] = useState(false);
+  // The graphics settings, remembered in this browser
+  const [graphics, setGraphics] = useState<GraphicsSettings>(DEFAULT_GRAPHICS);
+  const graphicsRef = useRef(graphics);
+  useEffect(() => {
+    setGraphics(loadGraphics());
+  }, []);
+  const changeGraphics = (change: Partial<GraphicsSettings>) => {
+    setGraphics(previous => {
+      const next = { ...previous, ...change };
+      saveGraphics(next);
+      return next;
+    });
+  };
   const [quake, setQuake] = useState<QuakeState>('idle');
 
   // The wind and the turbines' sound: one for the page, kept across scene changes
@@ -134,6 +149,11 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   useEffect(() => {
     effectsRef.current?.setBloom(bloom);
   }, [effectsReady, bloom]);
+  useEffect(() => {
+    graphicsRef.current = graphics;
+    effectsRef.current?.setClouds(graphics.clouds);
+    effectsRef.current?.setAtmosphere(graphics.atmosphere);
+  }, [effectsReady, graphics]);
 
   const startQuake = () => {
     const effects = effectsRef.current;
@@ -208,6 +228,8 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     const spark = new SparkRenderer({ renderer, maxStdDev: SPLAT_STD_DEV });
     // Smooths the meshes' edges (terrain, turbines) without touching the splats; not in VR
     const meshAntialias = createMeshAntialias(renderer);
+    // The "Efecto cine" setting's last pass; not in VR
+    const cinema = createCinemaEffect(renderer);
     scene.add(spark);
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -300,7 +322,11 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       if (shake) camera.position.add(shake);
       soundRef.current?.setListener(camera, world);
       if (renderer.xr.isPresenting) renderer.render(scene, camera);
-      else meshAntialias.render(scene, camera, spark);
+      else if (graphicsRef.current.cinema) {
+        cinema.prepare();
+        meshAntialias.render(scene, camera, spark, cinema.target);
+        cinema.render(time / 1000);
+      } else meshAntialias.render(scene, camera, spark);
       if (shake) camera.position.sub(shake);
     });
 
@@ -434,6 +460,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       environment?.dispose();
       spark.dispose();
       meshAntialias.dispose();
+      cinema.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
       viewerContainer.remove();
@@ -504,6 +531,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
             hour={hour} onHourChange={setHour}
             fog={fog} onFogChange={setFog}
             bloom={bloom} onBloomChange={setBloom}
+            graphics={graphics} onGraphicsChange={changeGraphics}
             quake={quake} onStartQuake={startQuake} onResetQuake={resetQuake}
           />
         )}

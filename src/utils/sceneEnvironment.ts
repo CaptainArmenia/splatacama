@@ -19,6 +19,83 @@ interface TerrainDetail {
   earthRadius?: number;
 }
 
+// The clouds: their base (metres above the site), how big they come (metres), the wind (metres a second), how far
+// off they fade into the haze, and how far from the site their shadows start (metres)
+const CLOUD_HEIGHT = 1400;
+const CLOUD_SIZE = 1600;
+const CLOUD_WIND = 7;
+const CLOUD_FADE = 45000;
+const CLOUD_SHADOW_FROM = 80;
+
+// Clouds and the light of the air, shared by the sky and the terrain (TerrainLight's uniforms): a layer of fair-weather
+// cumulus CLOUD_HEIGHT up, smooth noise bent by itself, drifting with the wind (from the south-west, as the swell),
+// covering more or less of the sky with terrainClouds (0: none). The haze toward the horizon is brighter and warmer
+// toward the sun's side (terrainGlow: 0 leaves it the same all around).
+const SKY_LIGHT_GLSL = `
+  uniform vec3 terrainSun;
+  uniform vec2 terrainSwell;
+  uniform float terrainTime;
+  uniform float terrainClouds;
+  uniform float terrainGlow;
+  float cloudHash(vec2 i) { return fract(sin(dot(i, vec2(127.1, 311.7))) * 43758.5453); }
+  float cloudNoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(cloudHash(i), cloudHash(i + vec2(1.0, 0.0)), u.x),
+               mix(cloudHash(i + vec2(0.0, 1.0)), cloudHash(i + vec2(1.0, 1.0)), u.x), u.y);
+  }
+  float cloudFbm(vec2 p) {
+    float sum = 0.0, weight = 0.5;
+    for (int i = 0; i < 5; i++) {
+      sum += weight * cloudNoise(p);
+      p = mat2(1.6, 1.2, -1.2, 1.6) * p + 7.1;
+      weight *= 0.5;
+    }
+    return sum;
+  }
+  // How much cloud covers a point of the layer (metres across the viewer's frame from the site)
+  float cloudCover(vec2 p) {
+    vec2 q = (p - terrainSwell * ${CLOUD_WIND.toFixed(1)} * terrainTime) / ${CLOUD_SIZE.toFixed(1)};
+    float n = cloudFbm(q + 0.7 * cloudFbm(q * 0.5 + 1.7));
+    float edge = mix(0.7, 0.48, terrainClouds);
+    return smoothstep(edge, edge + 0.13, n);
+  }
+  // The haze's colour along a direction, over its colour all around (1: the same)
+  vec3 terrainHazeTint(vec3 toward) {
+    vec2 a = normalize(toward.xz + 1e-5), b = normalize(terrainSun.xz + 1e-5);
+    float side = 0.5 + 0.5 * dot(a, b);
+    return mix(vec3(1.0), mix(vec3(0.86, 0.9, 0.97), vec3(1.22, 1.14, 1.0), side * side), terrainGlow);
+  }`;
+
+// The sky: below the clouds, the haze near the horizon tinted toward the sun's side; the clouds, their side toward the
+// sun lit and their far side grey, thin edges near the sun shining through, fading into the haze far off; the sun's
+// disc and its glow, which the clouds hide
+const SKY_FRAGMENT = `{
+    // The panorama's gradient, smoothed up and down: the photos' sky has a kink where they stop looking up, which
+    // showed as a pale arc across the sky
+    vec3 smoothSky = vec3(0.0);
+    for (int i = -3; i <= 3; i++) smoothSky += texture2D(map, vMapUv + vec2(0.0, float(i) * 0.014)).rgb;
+    diffuseColor.rgb = diffuse * smoothSky / 7.0;
+    vec3 d = normalize(vSkyDirection);
+    float up = -d.y;
+    diffuseColor.rgb *= mix(terrainHazeTint(d), vec3(1.0), smoothstep(0.0, 0.45, up));
+    float cover = 0.0;
+    if (terrainClouds > 0.0 && up > 0.0) {
+      float far = ${CLOUD_HEIGHT.toFixed(1)} / max(up, 0.015);
+      vec2 p = d.xz * far;
+      cover = cloudCover(p);
+      float sunward = cloudCover(p + normalize(terrainSun.xz + 1e-5) * 220.0);
+      float lit = clamp(0.7 + 2.2 * (cover - sunward), 0.0, 1.0);
+      vec3 cloud = mix(vec3(0.5, 0.55, 0.63), vec3(1.0, 0.98, 0.95), lit);
+      cloud += vec3(1.0, 0.95, 0.85) * pow(max(dot(d, terrainSun), 0.0), 10.0) * (1.0 - cover) * 1.2;
+      cloud = mix(diffuseColor.rgb, cloud, 0.45 + 0.55 * exp(-far / 15000.0));
+      cover *= smoothstep(0.0, 0.07, up) * exp(-far / ${CLOUD_FADE.toFixed(1)});
+      diffuseColor.rgb = mix(diffuseColor.rgb, cloud, cover);
+    }
+    float toSun = max(dot(d, terrainSun), 0.0);
+    diffuseColor.rgb += terrainGlow * (1.0 - cover) * (vec3(1.0, 0.93, 0.8) * (0.35 * pow(toSun, 80.0) + 0.1 * pow(toSun, 8.0))
+      + vec3(6.0) * smoothstep(0.99996, 0.99999, toSun));
+  }`;
+
 const TERRAIN_DETAIL_HEADER = `
   uniform sampler2D detailMap;
   uniform vec4 detailFade;
@@ -39,11 +116,8 @@ const TERRAIN_DETAIL_HEADER = `
     return mix(mix(detailHash(i), detailHash(i + vec2(1.0, 0.0)), u.x),
                mix(detailHash(i + vec2(0.0, 1.0)), detailHash(i + vec2(1.0, 1.0)), u.x), u.y);
   }
-  uniform vec3 terrainSun;
-  uniform vec2 terrainSwell;
   uniform float terrainDay;
   uniform vec3 terrainEye;
-  uniform float terrainTime;
   uniform sampler2D terrainSky;
   uniform vec3 terrainAir;
   uniform vec3 terrainWater;
@@ -127,7 +201,20 @@ const TERRAIN_LIGHT_FRAGMENT = `
     float lit = (${AMBIENT.toFixed(2)} + ${(1 - AMBIENT).toFixed(2)} * max(dot(slopeNormal, terrainSun), 0.0))
       / (${AMBIENT.toFixed(2)} + ${(1 - AMBIENT).toFixed(2)} * sunUp);
     float shaded = terrainDay * land * smoothstep(detailFade.y, detailFade.y + 40.0 * detailSea.y, r);
-    diffuseColor.rgb = haze + (diffuseColor.rgb - haze) * mix(1.0, clamp(lit, 0.3, 1.7), shaded);
+    // The clouds' shadows drift over the land (not near the site: the splat's own light is fixed). Where the sun is
+    // hidden only the sky's light is left, a little bluer.
+    float shadowed = 0.0;
+    if (terrainClouds > 0.0) {
+      float aboveSite = -vTerrainPosition.y / detailSea.y;
+      vec2 underCloud = pm + terrainSun.xz / sunUp * (${CLOUD_HEIGHT.toFixed(1)} - aboveSite);
+      shadowed = cloudCover(underCloud) * terrainDay * smoothstep(${CLOUD_SHADOW_FROM.toFixed(1)}, ${(2.5 * CLOUD_SHADOW_FROM).toFixed(1)}, rm);
+    }
+    vec3 shadowLight = mix(vec3(1.0), vec3(0.92, 0.97, 1.12) * ${AMBIENT.toFixed(2)}
+      / (${AMBIENT.toFixed(2)} + ${(1 - AMBIENT).toFixed(2)} * sunUp), shadowed);
+    diffuseColor.rgb = haze + (diffuseColor.rgb - haze) * mix(1.0, clamp(lit, 0.3, 1.7), shaded) * mix(vec3(1.0), shadowLight, land);
+    // The haze is brighter and warmer toward the sun and bluer away from it, not the same all around
+    vec3 hazeTint = terrainHazeTint(-toEye);
+    diffuseColor.rgb += haze * (hazeTint - 1.0) * land;
     // Pale sand (the dunes inland of the bays) eases toward a bright sand colour instead of glaring white
     vec3 over = max(diffuseColor.rgb - 0.55, 0.0) * shaded;
     diffuseColor.rgb -= over * over / (over + 0.3);
@@ -161,7 +248,14 @@ const TERRAIN_LIGHT_FRAGMENT = `
       vec3 mirrored = reflect(-toEye, waveNormal);
       // (and those reflect the sky higher up)
       float skyUp = asin(clamp(-mirrored.y, 0.004, 1.0)) + atan(sqrt(rough));
-      vec3 skyColour = textureLod(terrainSky, vec2(0.25, 0.5 + skyUp / 3.14159), 0.0).rgb;
+      vec3 skyColour = textureLod(terrainSky, vec2(0.25, 0.5 + skyUp / 3.14159), 0.0).rgb * terrainHazeTint(mirrored);
+      // ... and the clouds in it
+      if (terrainClouds > 0.0) {
+        float mirroredUp = max(-mirrored.y, 0.02);
+        float far = ${CLOUD_HEIGHT.toFixed(1)} / mirroredUp;
+        float reflected = cloudCover(pm + mirrored.xz * far) * smoothstep(0.0, 0.08, mirroredUp) * exp(-far / ${CLOUD_FADE.toFixed(1)});
+        skyColour = mix(skyColour, vec3(0.8, 0.82, 0.86), reflected);
+      }
       vec3 halfway = normalize(terrainSun + toEye);
       float nh = max(dot(waveNormal, halfway), 1e-3);
       float m2 = 2.0 * rough;
@@ -172,7 +266,7 @@ const TERRAIN_LIGHT_FRAGMENT = `
       // The water's own colour: turquoise over the rocks and sand by the shore, deep blue out from it
       float coast = vTerrainShore.x;
       vec3 body = mix(${SEA_SHALLOW}, terrainWater, smoothstep(2.0, 14.0, coast + 8.0 * (detailNoise(pm / 25.0) - 0.5)));
-      vec3 water = body * (1.0 - fresnel) + skyColour * fresnel + min(glitter, 6.0);
+      vec3 water = body * (1.0 - 0.3 * shadowed) * (1.0 - fresnel) + skyColour * fresnel + min(glitter, 6.0) * (1.0 - shadowed);
       // White water, as lace (seaFoam: a share c of it shows above 1 - c), where it would be: the surf where the
       // satellite saw white water (reefs, points), its crests running in toward the shore; a wash along every shore;
       // and a few whitecaps out at sea where the wind gusts. Far off the lace blurs into its share.
@@ -186,7 +280,7 @@ const TERRAIN_LIGHT_FRAGMENT = `
       float foam = mix(smoothstep(1.0 - cover, 1.0 - cover + 0.06, lace) * step(0.002, cover), 0.7 * cover,
         smoothstep(0.8, 4.0, foot));
       water = mix(water, vec3(0.8), foam);
-      water = water * diffuse * exp(-rm / ${HAZE_METRES.toFixed(1)}) + haze;
+      water = water * diffuse * exp(-rm / ${HAZE_METRES.toFixed(1)}) + haze * hazeTint;
       diffuseColor.rgb = mix(water, diffuseColor.rgb, land);
     }`;
 
@@ -221,7 +315,9 @@ const TERRAIN_DETAIL_FRAGMENT = `{
       // (seen from low down: the bare ground between the cards near the site, the map's mean beyond them, so the
       // colours still meet the splat's at its edge and keep the satellite's far off)
       vec3 plants = texture2D(scrubMap, sm, 2.5 * beyond).rgb;
-      vec3 mapped = mix(mix(scrubBare, texture2D(scrubMap, sm, 12.0).rgb, beyond), plants, fromAbove * (1.0 - 0.6 * beyond));
+      // (from above too, past the nearest plants they show at half strength: at full they read as a dotted carpet)
+      float shown = fromAbove * mix(1.0, 0.5, smoothstep(30.0, 120.0, rm)) * (1.0 - 0.6 * beyond);
+      vec3 mapped = mix(mix(scrubBare, texture2D(scrubMap, sm, 12.0).rgb, max(beyond, fromAbove)), plants, shown);
       diffuseColor.rgb *= mix(vec3(1.0), mapped * gain, ks);
       vec2 sg = sm * scrubInfo.x / scrubGrainPeriod;
       diffuseColor.rgb *= mix(vec3(1.0), texture2D(scrubGrain, sg).rgb / texture2D(scrubGrain, sg, 12.0).rgb, 0.6 * ks);
@@ -271,6 +367,8 @@ function addTerrainDetail(material: any, texture: any, detail: TerrainDetail, an
     shader.uniforms.terrainSky = light.sky;
     shader.uniforms.terrainAir = light.air;
     shader.uniforms.terrainWater = light.water;
+    shader.uniforms.terrainClouds = light.clouds;
+    shader.uniforms.terrainGlow = light.glow;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
         attribute vec2 terrainShore;
@@ -282,7 +380,7 @@ function addTerrainDetail(material: any, texture: any, detail: TerrainDetail, an
         vTerrainNormal = normal;
         vTerrainShore = terrainShore;`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\n${TERRAIN_DETAIL_HEADER}`)
+      .replace('#include <common>', `#include <common>\n${SKY_LIGHT_GLSL}\n${TERRAIN_DETAIL_HEADER}`)
       .replace('#include <map_fragment>', `#include <map_fragment>\n${TERRAIN_DETAIL_FRAGMENT}`);
   };
   material.customProgramCacheKey = () => 'terrain-detail';
@@ -321,6 +419,9 @@ export type TerrainLight = {
   // The sea's tiling slopes and white water (public/textures, made by the pipeline's sea_textures.py)
   seaNormals: { value: THREE.Texture };
   seaFoam: { value: THREE.Texture };
+  // How much of the sky the clouds cover (0: none) and how much the haze glows toward the sun (0 to 1)
+  clouds: { value: number };
+  glow: { value: number };
 };
 
 // Smooth normals for the sunlight on the slopes, and for the surf, each vertex's distance from the land (metres; 0 on
@@ -490,6 +591,8 @@ export async function loadSceneEnvironment(
     water: { value: new THREE.Color(WATER_COLOUR) },
     seaNormals: { value: seaNormals },
     seaFoam: { value: seaFoam },
+    clouds: { value: 0 },
+    glow: { value: 0 },
   };
   const eye = new THREE.Vector3();
 
@@ -502,6 +605,22 @@ export async function loadSceneEnvironment(
         map: skyTexture, side: THREE.BackSide, depthTest: false, depthWrite: false, fog: false, toneMapped: false
       })
     );
+    // The clouds, the sun and the haze's glow toward it, over the panorama (in the terrain's frame: the sphere is
+    // turned over, so its points' y and z flip)
+    const skyMaterial = skyMesh.material as THREE.MeshBasicMaterial;
+    skyMaterial.onBeforeCompile = (shader: any) => {
+      Object.assign(shader.uniforms, {
+        terrainSun: light.sun, terrainSwell: light.swell, terrainTime: light.time,
+        terrainClouds: light.clouds, terrainGlow: light.glow,
+      });
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vSkyDirection;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSkyDirection = vec3(position.x, -position.y, -position.z);');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>\nvarying vec3 vSkyDirection;\n${SKY_LIGHT_GLSL}`)
+        .replace('#include <map_fragment>', `#include <map_fragment>\n${SKY_FRAGMENT}`);
+    };
+    skyMaterial.customProgramCacheKey = () => 'sky-light';
     skyMesh.rotation.x = Math.PI; // the panorama is upright; the scene is y-down
     skyMesh.renderOrder = -1;
     skyMesh.frustumCulled = false;
