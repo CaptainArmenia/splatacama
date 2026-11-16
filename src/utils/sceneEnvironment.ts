@@ -17,6 +17,9 @@ interface TerrainDetail {
   seaZ?: number;
   unitsPerMetre?: number;
   earthRadius?: number;
+  // Where the terrain's texture is a mosaic of the site's own drone photos (env_build.py photo_mosaic): a texture
+  // of its coverage, laid out as the terrain's. There the land already has its real plants, rocks and shading.
+  photoMask?: number;
 }
 
 // The clouds: their base (metres above the site), how big they come (metres), the wind (metres a second), how far
@@ -108,6 +111,8 @@ const TERRAIN_DETAIL_HEADER = `
   uniform sampler2D detailMap;
   uniform vec4 detailFade;
   uniform float detailPeriod;
+  uniform float detailPhoto;
+  uniform sampler2D photoMask;
   uniform vec3 detailSea;
   uniform float detailBloom;
   uniform sampler2D scrubMap;
@@ -229,7 +234,8 @@ const TERRAIN_LIGHT_FRAGMENT = `
     // Rock and sand at the few metres the satellite's 10 m pixels can't show, from past the splat's edge to a couple
     // of kilometres: outcrops darker and standing out of the sand (their sides lit or not), each scale fading out as
     // a pixel grows past it
-    float rocky = land * smoothstep(detailFade.y, detailFade.y + 20.0 * detailSea.y, r) * (1.0 - smoothstep(1500.0, 3000.0, rm));
+    float rocky = land * smoothstep(detailFade.y, detailFade.y + 20.0 * detailSea.y, r) * (1.0 - smoothstep(1500.0, 3000.0, rm))
+      * beyondPhoto;
     if (rocky > 0.0) {
       vec2 q = mat2(0.8, -0.6, 0.6, 0.8) * pm;
       float big = 1.0 - smoothstep(6.0, 24.0, foot);
@@ -246,7 +252,7 @@ const TERRAIN_LIGHT_FRAGMENT = `
     // reconstruction has the real ones.
     float steep = length(smoothNormal.xz);
     float gullied = land * smoothstep(0.06, 0.3, steep) * smoothstep(detailFade.y, detailFade.y + 15.0 * detailSea.y, r)
-      * (1.0 - smoothstep(2500.0, 5000.0, rm));
+      * (1.0 - smoothstep(2500.0, 5000.0, rm)) * beyondPhoto;
     if (gullied > 0.0) {
       vec2 down = normalize(smoothNormal.xz);
       vec3 wide = terrainGullies(pm / ${GULLY_CELL.toFixed(1)}, down);
@@ -283,7 +289,7 @@ const TERRAIN_LIGHT_FRAGMENT = `
     vec3 skyLight = mix(vec3(1.0), vec3(0.86, 0.95, 1.14), terrainGlow);
     vec3 lit = (${AMBIENT.toFixed(2)} * skyLight + ${(1 - AMBIENT).toFixed(2)} * max(dot(slopeNormal, terrainSun), 0.0) * sunColour)
       / (${AMBIENT.toFixed(2)} + ${(1 - AMBIENT).toFixed(2)} * sunUp);
-    float shaded = terrainDay * land * smoothstep(detailFade.y, detailFade.y + 40.0 * detailSea.y, r);
+    float shaded = terrainDay * land * smoothstep(detailFade.y, detailFade.y + 40.0 * detailSea.y, r) * beyondPhoto;
     // The clouds' shadows drift over the land (not near the site: the splat's own light is fixed). Where the sun is
     // hidden only the sky's light is left, a little bluer.
     float shadowed = 0.0;
@@ -432,7 +438,10 @@ const TERRAIN_DETAIL_FRAGMENT = `{
     vec3 b = texture2D(detailMap, pb).rgb * 2.0 - 1.0;
     float w = smoothstep(0.25, 0.75, detailNoise(p * 2.3));
     vec3 d = (a * (1.0 - w) + b * w) / sqrt((1.0 - w) * (1.0 - w) + w * w);
-    float ks = smoothstep(scrubInfo.y, scrubInfo.z, r) * land * level * scrubInfo.w;
+    // Where the texture is the drone photos' own mosaic, the land has its real plants, rocks, gullies and sunlight:
+    // the scrub map, the mottling, the gullies and the slopes' shading only come in beyond it
+    float beyondPhoto = 1.0 - detailPhoto * texture2D(photoMask, vMapUv).r;
+    float ks = smoothstep(scrubInfo.y, scrubInfo.z, r) * land * level * scrubInfo.w * beyondPhoto;
     // The scrub map's plants as seen from above only show when the eye looks down steeply onto them: from lower
     // down they'd lie on the land like stickers (the cut-out cards stand there instead). Beyond the cards, the map
     // pales and blurs into the land's grain.
@@ -471,15 +480,18 @@ const TERRAIN_DETAIL_FRAGMENT = `{
   }`;
 
 // Multiplies the detail texture over a terrain material's colours (the meshes' positions are in the viewer's frame)
-function addTerrainDetail(material: any, texture: any, detail: TerrainDetail, anisotropy: number, bloom: { value: number },
-  scrub: TerrainScrub, light: TerrainLight) {
+function addTerrainDetail(material: any, texture: any, photoMask: any, detail: TerrainDetail, anisotropy: number,
+  bloom: { value: number }, scrub: TerrainScrub, light: TerrainLight) {
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   texture.anisotropy = anisotropy;
   material.userData.detailMap = texture;
+  material.userData.photoMask = photoMask;
   material.onBeforeCompile = (shader: any) => {
     shader.uniforms.detailMap = { value: texture };
     shader.uniforms.detailFade = { value: new THREE.Vector4(...detail.fade) };
     shader.uniforms.detailPeriod = { value: detail.period };
+    shader.uniforms.detailPhoto = { value: photoMask ? 1 : 0 };
+    shader.uniforms.photoMask = { value: photoMask ?? texture };
     // Without the sea's height, every point counts as far above it
     shader.uniforms.detailSea = {
       value: new THREE.Vector3(detail.seaZ ?? -1e6, detail.unitsPerMetre ?? 1, detail.earthRadius ?? 6.4e6),
@@ -533,6 +545,7 @@ export function disposeObject(root: THREE.Object3D) {
     for (const material of [object.material].flat()) {
       material.map?.dispose();
       material.userData.detailMap?.dispose();
+      material.userData.photoMask?.dispose();
       material.dispose();
     }
   });
@@ -809,8 +822,11 @@ export async function loadSceneEnvironment(
         light.eye.value.copy(object.worldToLocal(eye.setFromMatrixPosition(camera.matrixWorld)));
         light.time.value = performance.now() / 1000;
       };
-      details.push(gltf.parser.getDependency('texture', detail.texture)
-        .then((texture: any) => addTerrainDetail(object.material, texture, detail, anisotropy, bloom, scrub, light)));
+      details.push(Promise.all([
+        gltf.parser.getDependency('texture', detail.texture),
+        detail.photoMask !== undefined ? gltf.parser.getDependency('texture', detail.photoMask) : null,
+      ]).then(([texture, photoMask]: any[]) =>
+        addTerrainDetail(object.material, texture, photoMask, detail, anisotropy, bloom, scrub, light)));
     }
   });
   await Promise.all(details);
