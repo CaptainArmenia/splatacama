@@ -153,6 +153,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     graphicsRef.current = graphics;
     effectsRef.current?.setClouds(graphics.clouds);
     effectsRef.current?.setAtmosphere(graphics.atmosphere);
+    effectsRef.current?.setBirds(graphics.birds);
   }, [effectsReady, graphics]);
 
   const startQuake = () => {

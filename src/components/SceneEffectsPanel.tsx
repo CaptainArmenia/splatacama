@@ -125,6 +125,12 @@ export default function SceneEffectsPanel(props: Props) {
             onChange={(on) => props.onGraphicsChange({ atmosphere: on })}
           />
           <PanelToggle
+            label="Aves marinas"
+            description="Gaviotas que planean en círculos y una fila de pelícanos a lo largo de la costa."
+            on={props.graphics.birds}
+            onChange={(on) => props.onGraphicsChange({ birds: on })}
+          />
+          <PanelToggle
             label="Efecto cine"
             description="Brillos en el mar y la espuma, colores de cámara, bordes oscurecidos y grano fino."
             on={props.graphics.cinema}

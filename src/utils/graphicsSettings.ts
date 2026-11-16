@@ -9,9 +9,11 @@ export type GraphicsSettings = {
   atmosphere: boolean;
   // A camera's last touch over the whole frame (src/utils/cinemaEffect.ts)
   cinema: boolean;
+  // Gulls and pelicans flying round the site (src/effects/seabirds.ts)
+  birds: boolean;
 };
 
-export const DEFAULT_GRAPHICS: GraphicsSettings = { clouds: true, atmosphere: true, cinema: false };
+export const DEFAULT_GRAPHICS: GraphicsSettings = { clouds: true, atmosphere: true, cinema: false, birds: true };
 
 const KEY = 'splatacama.graphics';
 

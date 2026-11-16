@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { dyno, SplatFileType, SplatMesh } from '@sparkjsdev/spark';
 import { createCamanchaca, type Camanchaca } from '@/effects/camanchaca';
 import { createDaylight, createSplatShadow, sunDirection, type Daylight } from '@/effects/daylight';
+import { createSeabirds } from '@/effects/seabirds';
 import { loadScrub, type Scrub } from '@/effects/scrub';
 import { createDesertBloom, type DesertBloom } from '@/effects/desertBloom';
 import type { Earthquake } from '@/effects/earthquake';
@@ -85,6 +86,8 @@ export type SceneEffects = {
   setClouds: (on: boolean) => void;
   /** The sun's disc, and the haze brighter and warmer toward it */
   setAtmosphere: (on: boolean) => void;
+  /** Gulls and pelicans flying round the site (by day) */
+  setBirds: (on: boolean) => void;
   /** Cuts the walls into stones the first time (seconds); false when the site has none */
   startQuake: () => Promise<boolean>;
   resetQuake: () => void;
@@ -162,6 +165,9 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
   metric.add(fog.mesh);
   const flowers: DesertBloom = createDesertBloom(analysis, Math.min(options.splatRadius, analysis.half));
   metric.add(flowers.mesh);
+  const birds = createSeabirds(analysis.groundAt(0, 0));
+  metric.add(birds.mesh);
+  let birdsOn = false;
 
   // People walking the site, on the splat's ground; they appear when their model has loaded
   const npcs: Npc[] = [];
@@ -223,6 +229,7 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     scrub?.setTint(landTint);
     if (environment?.sky) environment.sky.visible = !night && !fogOn;
     if (environment) environment.light.day.value = night || fogOn ? 0 : 1;
+    birds.mesh.visible = birdsOn && !night;
     sky.group.visible = night;
     daylight?.setNight(night);
     shadow.uniforms.strength.value = night || fogOn || !npcs.length ? 0 : 1;
@@ -267,6 +274,10 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     setAtmosphere(on) {
       if (environment) environment.light.glow.value = on ? 1 : 0;
     },
+    setBirds(on) {
+      birdsOn = on;
+      apply();
+    },
     setBloom(on) {
       bloomTarget = on ? 1 : 0;
       if (on) flowers.mesh.visible = true;
@@ -307,6 +318,7 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     update(seconds, deltaSeconds, camera) {
       sky.update(seconds);
       flowers.update(seconds);
+      if (birds.mesh.visible) birds.update(seconds);
       camera.getWorldPosition(metricCamera);
       fog.update(seconds, metric.worldToLocal(metricCamera));
       for (const npc of npcs) npc.update(deltaSeconds, metricCamera);
@@ -345,6 +357,7 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
       sky.dispose();
       fog.dispose();
       flowers.dispose();
+      birds.dispose();
       earthquake?.dispose();
       metric.removeFromParent();
       scene.fog = null;
