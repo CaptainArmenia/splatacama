@@ -401,7 +401,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
           world, scene, renderer, splat: mesh, file, analysis: siteAnalysis, environment, turbines: windTurbines,
           site: { lat, lng, heading, metersPerUnit, sun },
           splatRadius: limits.radius * metersPerUnit,
-          background, far, npcs, scrubUrl: env?.scrubUrl,
+          background, far, npcs, scrubUrl: env?.scrubUrl, scrubReach: env?.scrubReach,
         });
         if (cancelled) {
           effects.dispose();

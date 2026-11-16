@@ -294,10 +294,14 @@ const TERRAIN_LIGHT_FRAGMENT = `
     // Pale sand (the dunes inland of the bays) keeps a sand colour, its brightness eased and warm: plain, it came out
     // a colourless white that read as snow
     float bright = dot(ground, vec3(0.2126, 0.7152, 0.0722));
-    float overBright = max(bright - 0.3, 0.0);
-    float keptBright = bright - overBright * overBright / (overBright + 0.25);
-    ground = mix(ground, mix(ground * keptBright / max(bright, 1e-4), keptBright * vec3(1.2, 1.0, 0.72),
-      0.8 * smoothstep(0.24, 0.5, bright)), shaded);
+    float overBright = max(bright - 0.45, 0.0);
+    float keptBright = bright - overBright * overBright / (overBright + 0.3);
+    vec3 sand = ground * keptBright / max(bright, 1e-4);
+    // (only a little near the site, where the land must meet the splat's own sand, pale as it may be; more far
+    // off, where the haze turns white sand bluish)
+    sand = mix(sand, keptBright * vec3(1.08, 1.0, 0.86),
+      (0.15 + 0.55 * smoothstep(400.0, 2000.0, rm)) * smoothstep(0.3, 0.6, bright));
+    ground = mix(ground, sand, shaded);
     // The haze is brighter and warmer toward the sun and bluer away from it, not the same all around, and with the
     // atmosphere the sea air thickens with distance, so ridge after ridge steps back
     vec3 hazeTint = terrainHazeTint(-toEye);

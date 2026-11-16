@@ -68,6 +68,7 @@ export type SceneEffectsOptions = {
   environment: LoadedEnvironment | null;
   // The plants of the land around the site (SceneEnvironment.scrubUrl)
   scrubUrl?: string;
+  scrubReach?: number;
   turbines: WindTurbines | null;
   // The page background by day
   background: THREE.Color;
@@ -183,7 +184,7 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
   let scrub: Scrub | null = null;
   if (environment && options.scrubUrl) {
     loadScrub(options.scrubUrl, environment, metric, analysis, daylight?.sun ?? sunDirection(compass, site.sun),
-      site.sun?.shadows ?? 1, site.metersPerUnit, renderer.capabilities.getMaxAnisotropy())
+      site.sun?.shadows ?? 1, site.metersPerUnit, renderer.capabilities.getMaxAnisotropy(), options.scrubReach)
       .then(loaded => {
         if (disposed) {
           loaded.dispose();

@@ -138,6 +138,7 @@
       "terrainUrl": "pirca2-05_terrain_v4.glb",
       "skyUrl": "pirca2-05_sky.jpg",
       "scrubUrl": "pirca2-05_scrub_v2.json",
+      "scrubReach": 26,
       "background": "#dde6e9",
       "far": 20000
     }
@@ -166,6 +167,7 @@
       "terrainUrl": "pirca2-09_terrain_v4.glb",
       "skyUrl": "pirca2-09_sky.jpg",
       "scrubUrl": "pirca2-09_scrub.json",
+      "scrubReach": 26,
       "background": "#96bada",
       "far": 20000
     }
@@ -194,6 +196,7 @@
       "terrainUrl": "pirca2-10_terrain_v4.glb",
       "skyUrl": "pirca2-10_sky.jpg",
       "scrubUrl": "pirca2-10_scrub.json",
+      "scrubReach": 26,
       "background": "#9bb4cb",
       "far": 20000
     }
@@ -222,6 +225,7 @@
       "terrainUrl": "pirca2-04_terrain_v4.glb",
       "skyUrl": "pirca2-04_sky.jpg",
       "scrubUrl": "pirca2-04_scrub.json",
+      "scrubReach": 26,
       "background": "#d2f1f8",
       "far": 22000
     }
@@ -250,6 +254,7 @@
       "terrainUrl": "pirca2-08_terrain_v4.glb",
       "skyUrl": "pirca2-08_sky.jpg",
       "scrubUrl": "pirca2-08_scrub.json",
+      "scrubReach": 26,
       "background": "#b2c7db",
       "far": 27500
     }
@@ -281,6 +286,7 @@
       "terrainUrl": "pirca2-06_terrain_v4.glb",
       "skyUrl": "pirca2-06_sky.jpg",
       "scrubUrl": "pirca2-06_scrub.json",
+      "scrubReach": 26,
       "background": "#dde6e9",
       "far": 20000
     }
@@ -309,6 +315,7 @@
       "terrainUrl": "pirca2-07_terrain_v4.glb",
       "skyUrl": "pirca2-07_sky.jpg",
       "scrubUrl": "pirca2-07_scrub.json",
+      "scrubReach": 26,
       "background": "#b2c7db",
       "far": 27500
     }
@@ -340,6 +347,7 @@
       "terrainUrl": "pirca2-11_terrain_v4.glb",
       "skyUrl": "pirca2-11_sky.jpg",
       "scrubUrl": "pirca2-11_scrub.json",
+      "scrubReach": 26,
       "background": "#dde6e9",
       "far": 20000
     }
@@ -369,6 +377,7 @@
       "terrainUrl": "pirca2-02_terrain_v4.glb",
       "skyUrl": "pirca2-02_sky.jpg",
       "scrubUrl": "pirca2-02_scrub.json",
+      "scrubReach": 26,
       "background": "#dde6e9",
       "far": 20000
     }
@@ -399,6 +408,7 @@
       "terrainUrl": "pirca2-03_terrain_v4.glb",
       "skyUrl": "pirca2-03_sky.jpg",
       "scrubUrl": "pirca2-03_scrub.json",
+      "scrubReach": 26,
       "background": "#cae3f7",
       "far": 37000
     }

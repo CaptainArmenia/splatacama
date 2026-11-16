@@ -28,9 +28,9 @@ const SCRUB = {
   reach: 120,
   thinOut: 70,
   // ... and each kind no further than this many metres per metre of its size (the square root of its width times
-  // its height): a 1.3 m shrub to about 22 m, a stone or a mat to 8-12 m (further, they were flat coloured blobs on
-  // the slopes; the terrain's map carries them there as specks and shadows)
-  reachPerMetre: 26,
+  // its height): a 1.3 m shrub to about 110 m, a stone or a mat to 40-60 m. A site can set less
+  // (SceneEnvironment.scrubReach): the terrain's map carries the plants further out as specks and shadows.
+  reachPerMetre: 130,
   // And they thin to nothing as the camera comes this near (metres)
   tooNear: [2, 4.5],
   // How far a card leans back toward facing a camera above it (1: all the way), about this height on the plant
@@ -511,6 +511,7 @@ export async function loadScrub(
   shadows: number,
   metersPerUnit: number,
   anisotropy: number,
+  reachPerMetre: number = SCRUB.reachPerMetre,
 ): Promise<Scrub> {
   const described = new URL(assetUrl(url), window.location.href);
   const response = await fetch(described);
@@ -650,7 +651,7 @@ export async function loadScrub(
         const half = (kind.width * plant.size) / 2;
         // Each kind stands out to where it would still be a few pixels across: small things (tufts, stones, mats)
         // further out would only scatter confetti over the land
-        const reach = Math.min(SCRUB.reach, SCRUB.reachPerMetre * Math.sqrt(kind.width * kind.height) * plant.size);
+        const reach = Math.min(SCRUB.reach, reachPerMetre * Math.sqrt(kind.width * kind.height) * plant.size);
         if (distance - 0.6 * half < edge + 0.5 || distance > reach) continue;
         // Over the last stretch fewer and fewer stand, a little smaller: an edge where they all stopped would show
         // as a line across the land

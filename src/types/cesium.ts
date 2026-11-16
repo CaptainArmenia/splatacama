@@ -79,6 +79,10 @@ export interface SceneEnvironment {
   // The site's plants for the land around it: a JSON file naming their atlas image, which lies next to it, and each
   // kind's size (see src/effects/scrub.ts; the pipeline's scrub_atlas.py cuts them out of the site's photos)
   scrubUrl?: string;
+  // How far the plants stand as cut-out cards: metres per metre of a plant's size (the default is 130: a 1.3 m shrub
+  // to about 110 m). Lower for an atlas cut from the drone's oblique shots (the second batch's), whose plants are
+  // flat ovals that read as stickers on the slopes.
+  scrubReach?: number;
   // The haze colour the terrain fades to at the horizon, also drawn behind everything
   background?: string;
   // Camera far plane (viewer units), for terrain reaching the horizon; the default is 1000
