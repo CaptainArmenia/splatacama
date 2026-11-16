@@ -83,6 +83,10 @@ export interface SceneEnvironment {
   // to about 110 m). Lower for an atlas cut from the drone's oblique shots (the second batch's), whose plants are
   // flat ovals that read as stickers on the slopes.
   scrubReach?: number;
+  // How much the terrain's brightest sand is tinted a warm sand colour, 0 to 1 (the default is 0.15). High where far
+  // dunes came out a bluish white that read as snow (the second batch); low where the site's own sand is as pale
+  // and the land must meet the splat's.
+  paleSand?: number;
   // The haze colour the terrain fades to at the horizon, also drawn behind everything
   background?: string;
   // Camera far plane (viewer units), for terrain reaching the horizon; the default is 1000

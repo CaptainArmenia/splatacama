@@ -125,6 +125,7 @@ const TERRAIN_DETAIL_HEADER = `
                mix(detailHash(i + vec2(0.0, 1.0)), detailHash(i + vec2(1.0, 1.0)), u.x), u.y);
   }
   uniform float terrainDay;
+  uniform float terrainSand;
   uniform float terrainMist;
   uniform vec3 terrainEye;
   uniform sampler2D terrainSky;
@@ -297,10 +298,9 @@ const TERRAIN_LIGHT_FRAGMENT = `
     float overBright = max(bright - 0.45, 0.0);
     float keptBright = bright - overBright * overBright / (overBright + 0.3);
     vec3 sand = ground * keptBright / max(bright, 1e-4);
-    // (only a little near the site, where the land must meet the splat's own sand, pale as it may be; more far
-    // off, where the haze turns white sand bluish)
-    sand = mix(sand, keptBright * vec3(1.08, 1.0, 0.86),
-      (0.15 + 0.55 * smoothstep(400.0, 2000.0, rm)) * smoothstep(0.3, 0.6, bright));
+    // (by terrainSand: slight where the site's own sand is as pale and the land must meet the splat's, strong where a
+    // far dune, bluish in the haze, read as snow)
+    sand = mix(sand, keptBright * vec3(1.2, 1.0, 0.72), terrainSand * smoothstep(0.24, 0.5, bright));
     ground = mix(ground, sand, shaded);
     // The haze is brighter and warmer toward the sun and bluer away from it, not the same all around, and with the
     // atmosphere the sea air thickens with distance, so ridge after ridge steps back
@@ -486,6 +486,7 @@ function addTerrainDetail(material: any, texture: any, detail: TerrainDetail, an
     shader.uniforms.terrainWater = light.water;
     shader.uniforms.terrainClouds = light.clouds;
     shader.uniforms.terrainMist = light.mist;
+    shader.uniforms.terrainSand = light.sand;
     shader.uniforms.terrainGlow = light.glow;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
@@ -542,6 +543,8 @@ export type TerrainLight = {
   glow: { value: number };
   // The Bruma costera setting's banks of mist low over the sea and the coast (0: none, 1: on)
   mist: { value: number };
+  // How much bright sand is tinted a warm sand colour (SceneEnvironment.paleSand)
+  sand: { value: number };
 };
 
 // Smooth normals for the sunlight on the slopes, and for the surf, each vertex's distance from the land (metres; 0 on
@@ -733,6 +736,7 @@ export async function loadSceneEnvironment(
     clouds: { value: 0 },
     glow: { value: 0 },
     mist: { value: 0 },
+    sand: { value: env.paleSand ?? 0.15 },
   };
   const eye = new THREE.Vector3();
 

@@ -139,6 +139,7 @@
       "skyUrl": "pirca2-05_sky.jpg",
       "scrubUrl": "pirca2-05_scrub_v2.json",
       "scrubReach": 26,
+      "paleSand": 0.8,
       "background": "#dde6e9",
       "far": 20000
     }
@@ -168,6 +169,7 @@
       "skyUrl": "pirca2-09_sky.jpg",
       "scrubUrl": "pirca2-09_scrub.json",
       "scrubReach": 26,
+      "paleSand": 0.8,
       "background": "#96bada",
       "far": 20000
     }
@@ -197,6 +199,7 @@
       "skyUrl": "pirca2-10_sky.jpg",
       "scrubUrl": "pirca2-10_scrub.json",
       "scrubReach": 26,
+      "paleSand": 0.8,
       "background": "#9bb4cb",
       "far": 20000
     }
@@ -226,6 +229,7 @@
       "skyUrl": "pirca2-04_sky.jpg",
       "scrubUrl": "pirca2-04_scrub.json",
       "scrubReach": 26,
+      "paleSand": 0.8,
       "background": "#d2f1f8",
       "far": 22000
     }
@@ -255,6 +259,7 @@
       "skyUrl": "pirca2-08_sky.jpg",
       "scrubUrl": "pirca2-08_scrub.json",
       "scrubReach": 26,
+      "paleSand": 0.8,
       "background": "#b2c7db",
       "far": 27500
     }
@@ -287,6 +292,7 @@
       "skyUrl": "pirca2-06_sky.jpg",
       "scrubUrl": "pirca2-06_scrub.json",
       "scrubReach": 26,
+      "paleSand": 0.8,
       "background": "#dde6e9",
       "far": 20000
     }
@@ -316,6 +322,7 @@
       "skyUrl": "pirca2-07_sky.jpg",
       "scrubUrl": "pirca2-07_scrub.json",
       "scrubReach": 26,
+      "paleSand": 0.8,
       "background": "#b2c7db",
       "far": 27500
     }
@@ -348,6 +355,7 @@
       "skyUrl": "pirca2-11_sky.jpg",
       "scrubUrl": "pirca2-11_scrub.json",
       "scrubReach": 26,
+      "paleSand": 0.8,
       "background": "#dde6e9",
       "far": 20000
     }
@@ -378,6 +386,7 @@
       "skyUrl": "pirca2-02_sky.jpg",
       "scrubUrl": "pirca2-02_scrub.json",
       "scrubReach": 26,
+      "paleSand": 0.8,
       "background": "#dde6e9",
       "far": 20000
     }
@@ -409,6 +418,7 @@
       "skyUrl": "pirca2-03_sky.jpg",
       "scrubUrl": "pirca2-03_scrub.json",
       "scrubReach": 26,
+      "paleSand": 0.8,
       "background": "#cae3f7",
       "far": 37000
     }
