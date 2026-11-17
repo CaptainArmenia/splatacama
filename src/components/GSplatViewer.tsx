@@ -212,7 +212,12 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     // the hills' outlines then showed as stair-steps crawling with every move of the head. A headset's GPU resolves
     // multisampling tile by tile at little cost, and three.js gives the VR image 4 samples when the context has it on,
     // so a headset's own browser gets it.
-    const renderer = new THREE.WebGLRenderer({ antialias: isHeadsetBrowser() });
+    //
+    // On trial, with ?vrmesh in the address: multisampling only the meshes in VR too (meshAntialias.renderXR), which
+    // should cost less, since the splats are then blended into one sample instead of four. It is not the default
+    // until it has been seen working on a headset: its first version drew no splats at all on the Meta Quest.
+    const meshPassInVR = new URLSearchParams(window.location.search).has('vrmesh');
+    const renderer = new THREE.WebGLRenderer({ antialias: isHeadsetBrowser() && !meshPassInVR });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setClearColor(background, 1);
     renderer.domElement.style.display = 'block';
@@ -241,7 +246,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     world.name = 'site';
     scene.add(world);
     const spark = new SparkRenderer({ renderer, maxStdDev: SPLAT_STD_DEV });
-    // Smooths the meshes' edges (terrain, turbines) without touching the splats; not in VR
+    // Smooths the meshes' edges (terrain, turbines) without touching the splats; in VR only on trial (see above)
     const meshAntialias = createMeshAntialias(renderer);
     scene.add(spark);
 
@@ -323,7 +328,10 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       const shake = effects?.update(time / 1000, deltaSeconds, camera);
       if (shake) camera.position.add(shake);
       soundRef.current?.setListener(camera, world);
-      if (renderer.xr.isPresenting) renderer.render(scene, camera);
+      if (renderer.xr.isPresenting) {
+        if (meshPassInVR) meshAntialias.renderXR(scene, camera, spark);
+        else renderer.render(scene, camera);
+      }
       else meshAntialias.render(scene, camera, spark);
       if (shake) camera.position.sub(shake);
     });
