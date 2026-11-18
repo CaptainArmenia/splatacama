@@ -32,6 +32,9 @@ export interface MapLandmark {
   photoPosesUrl?: string;
   // Other versions of the scene to compare with it in the viewer (a switch appears when there are any)
   variants?: SceneVariant[];
+  // Draw the splat with the trainer's blur instead of the renderer's anti-aliased one (see GSplatViewer.tsx): for
+  // models that come out washed otherwise. Check a site in the app both ways (?blur=plain, ?blur=aa) before setting it.
+  plainBlur?: boolean;
 }
 
 // Another version of a site's scene: a splat that carries its own surroundings, shown without the terrain mesh, the

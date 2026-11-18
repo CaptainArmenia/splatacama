@@ -296,7 +296,7 @@
     "heading": 34.5,
     "metersPerUnit": 1.25,
     "description": "Ubicada en una quebrada rocosa junto al mar, en la costa del desierto de Atacama, esta pirca de piedra seca, construida sin argamasa mediante la superposición manual de lajas, se apoya en un afloramiento rocoso y habría servido como refugio o vivienda temporal asociada a actividades costeras.",
-    "gsplatUrl": "pirca2-04_center.splat",
+    "gsplatUrl": "pirca2-04_center_v2.splat",
     "previewUrl": "pirca2-04_preview.jpg",
     "thumbnailUrl": "pirca2-04_thumb.jpg",
     "sun": {
@@ -316,7 +316,8 @@
       "background": "#d2f1f8",
       "far": 22000
     },
-    "photoPosesUrl": "pirca2-04_cameras.json"
+    "photoPosesUrl": "pirca2-04_cameras_v2.json",
+    "plainBlur": true
   },
   {
     "id": "pirca2-08",
@@ -327,7 +328,7 @@
     "heading": 114.5,
     "metersPerUnit": 1.0,
     "description": "Ubicada en una ladera cubierta de vegetación costera, en el desierto de Atacama, esta pirca de piedra seca, construida sin argamasa mediante la superposición manual de rocas, forma un pequeño recinto y habría servido como refugio, vivienda temporal o corral.",
-    "gsplatUrl": "pirca2-08_center.splat",
+    "gsplatUrl": "pirca2-08_center_v2.splat",
     "previewUrl": "pirca2-08_preview.jpg",
     "thumbnailUrl": "pirca2-08_thumb.jpg",
     "sun": {
@@ -347,7 +348,8 @@
       "background": "#b2c7db",
       "far": 27500
     },
-    "photoPosesUrl": "pirca2-08_cameras.json"
+    "photoPosesUrl": "pirca2-08_cameras_v2.json",
+    "plainBlur": true
   },
   {
     "id": "pirca2-06",
@@ -413,7 +415,7 @@
     "heading": 12.0,
     "metersPerUnit": 1.0,
     "description": "Ubicada en una ladera rocosa sobre una pequeña caleta, en la costa del desierto de Atacama, esta pirca de piedra seca, construida sin argamasa mediante la superposición manual de rocas, forma un recinto ovalado hoy casi a ras de suelo y habría servido como refugio, vivienda temporal o corral asociado a actividades costeras.",
-    "gsplatUrl": "pirca2-07_center.splat",
+    "gsplatUrl": "pirca2-07_center_v2.splat",
     "previewUrl": "pirca2-07_preview.jpg",
     "thumbnailUrl": "pirca2-07_thumb.jpg",
     "sun": {
@@ -433,7 +435,8 @@
       "background": "#b2c7db",
       "far": 27500
     },
-    "photoPosesUrl": "pirca2-07_cameras.json"
+    "photoPosesUrl": "pirca2-07_cameras_v2.json",
+    "plainBlur": true
   },
   {
     "id": "pirca2-11",

@@ -182,7 +182,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   const sceneKey = JSON.stringify({
     url: site.gsplatUrl, view: site.view, environment: site.environment, turbines, npcs: site.npcs,
     lat: site.lat, lng: site.lng, heading: site.heading, metersPerUnit: site.metersPerUnit, sun: site.sun,
-    pano: site.pano, photoPosesUrl: site.photoPosesUrl, variants: site.variants,
+    pano: site.pano, photoPosesUrl: site.photoPosesUrl, variants: site.variants, plainBlur: site.plainBlur,
   });
 
   // Keep the latest onError without making it restart the viewer
@@ -271,7 +271,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const { url, view, environment: env, turbines: turbineConfig, npcs, lat, lng, heading, metersPerUnit, sun, pano: panoConfig, photoPosesUrl, variants } = JSON.parse(sceneKey);
+    const { url, view, environment: env, turbines: turbineConfig, npcs, lat, lng, heading, metersPerUnit, sun, pano: panoConfig, photoPosesUrl, variants, plainBlur } = JSON.parse(sceneKey);
     const limits = { ...DEFAULT_VIEW, ...view };
     const background = new THREE.Color(env?.background ?? backgroundColor);
     const far = env?.far ?? DEFAULT_FAR;
@@ -332,7 +332,15 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     const world = new THREE.Group();
     world.name = 'site';
     scene.add(world);
-    const spark = new SparkRenderer({ renderer, maxStdDev: SPLAT_STD_DEV });
+    // Brush, which trains the splats, widens each one by 0.3 px on screen and leaves its opacity alone. Spark by
+    // default widens it and lowers its opacity to match (anti-aliasing), which fades the small splats: a model
+    // that draws its dark detail with small splats over large pale ones then comes out washed. `plainBlur` in
+    // landmarks.json draws a site as it was trained; ?blur=plain or ?blur=aa tries the other on any site.
+    const blurTrial = new URLSearchParams(window.location.search).get('blur');
+    const usePlainBlur = blurTrial === 'plain' || (blurTrial !== 'aa' && plainBlur === true);
+    const spark = new SparkRenderer({
+      renderer, maxStdDev: SPLAT_STD_DEV, ...(usePlainBlur ? { preBlurAmount: 0.3, blurAmount: 0 } : {}),
+    });
     // Smooths the meshes' edges (terrain, turbines) without touching the splats; in VR only on trial (see above)
     const meshAntialias = createMeshAntialias(renderer);
     meshAntialiasRef.current = meshAntialias;

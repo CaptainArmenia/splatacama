@@ -50,6 +50,7 @@ Splatacama is a Next.js 15 app (App Router, React 19, Tailwind 4) that shows arc
 - **GLSL reserved words.** The terrain shader is injected into three's; a variable named like a GLSL keyword (`flat` and `half` broke it) fails to compile only in the browser. Check the console after changing it.
 - **Testing VR without a headset.** Meta's WebXR emulator (`iwer`, with `installRuntime({ forceInstall: true })` on desktop Chrome) emulates a Quest 3 with scriptable thumbsticks; it passes for a Quest, so Spark uses its headset splat budget. Real headset performance still needs a real headset.
 - **Default view.** The start camera (`DEFAULT_CAMERA_CONFIG.center`, looking northeast) doesn't show `pirca11` and `pirca12`, which are about 16 km southeast.
+- **Splat blur.** Brush trains splats with a 0.3 px blur and no opacity change; Spark's default blur is anti-aliased and fades small splats, so some models come out pale in the app though they look right in a plain viewer. `plainBlur: true` in a site's `landmarks.json` entry draws it with the trainer's blur (set for the sites retrained on 18 Nov 2026: `pirca2-04`, `-07`, `-08`). Compare any site both ways with `?blur=plain` and `?blur=aa` before changing it: the earlier models of Pirka 8 and 11 turned paler with `plainBlur`.
 
 ## Known issues
 
