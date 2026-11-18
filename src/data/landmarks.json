@@ -278,6 +278,12 @@
         "label": "Solo splat",
         "description": "El modelo completo, sin recortar: su propio entorno en splats, sin terreno ni cielo añadidos.",
         "splatUrl": "pirca2-10_full.splat"
+      },
+      {
+        "id": "pano",
+        "label": "Splat + 360°",
+        "description": "El modelo completo entrenado además con la foto 360° y su profundidad: el entorno aprendido también desde el punto de la foto.",
+        "splatUrl": "pirca2-10_pano.splat"
       }
     ]
   },

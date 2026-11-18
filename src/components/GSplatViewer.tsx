@@ -721,7 +721,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
               Arrastra para mirar · rueda o teclas W A S D para moverte
             </span>
           )}
-          <div className="flex items-center gap-1 rounded-full border border-gray-700 bg-gray-900/90 p-1 text-xs font-medium text-white shadow-lg backdrop-blur-sm sm:text-sm">
+          <div className="flex max-w-[calc(100vw-1rem)] items-center gap-1 overflow-x-auto rounded-full border border-gray-700 bg-gray-900/90 p-1 text-xs font-medium text-white shadow-lg backdrop-blur-sm sm:text-sm">
             {(['photo', 'relief', 'scene'] as const)
               .filter(mode => (mode !== 'relief' || site.pano?.depth) && (mode !== 'scene' || !versions.length))
               .map(mode => (
@@ -768,7 +768,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       {panoMode === 'off' && versions.length > 0 && effectsReady && (
         <div className="absolute bottom-14 left-1/2 z-40 flex -translate-x-1/2 flex-col items-center gap-1.5">
           {versionStatus}
-          <div className="flex items-center gap-1 rounded-full border border-gray-700 bg-gray-900/90 p-1 text-xs font-medium text-white shadow-lg backdrop-blur-sm sm:text-sm">
+          <div className="flex max-w-[calc(100vw-1rem)] items-center gap-1 overflow-x-auto rounded-full border border-gray-700 bg-gray-900/90 p-1 text-xs font-medium text-white shadow-lg backdrop-blur-sm sm:text-sm">
             {versions.map(item => (
               <button
                 key={item.id}
