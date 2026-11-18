@@ -93,6 +93,11 @@ export type SceneEffects = {
    * Quest 3 they showed as a wall of tiny dots around the site. Its banks of mist on the terrain stay.
    */
   setHeadset: (on: boolean) => void;
+  /**
+   * Shows or hides the site as it is built here: its splat, the terrain, the sky and the plants. Hidden while
+   * another version of the site (a splat with its own surroundings) is shown in its place.
+   */
+  setSiteShown: (on: boolean) => void;
   /** Call every frame before rendering, with the camera */
   update: (seconds: number, deltaSeconds: number, camera: THREE.Camera) => void;
   dispose: () => void;
@@ -234,6 +239,7 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
 
   let night = false;
   let fogOn = false;
+  let siteShown = true;
 
   // Night and fog both change the background, the terrain, the sky and the far splats
   const apply = () => {
@@ -249,6 +255,9 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     const landTint = tint.clone().convertSRGBToLinear();
     for (const mesh of environment?.terrain ?? []) (mesh.material as THREE.MeshBasicMaterial).color.copy(landTint);
     scrub?.setTint(landTint);
+    splat.visible = siteShown;
+    if (environment) environment.group.visible = siteShown;
+    if (scrub) scrub.mesh.visible = siteShown;
     if (environment?.sky) environment.sky.visible = !night && !fogOn;
     if (environment) environment.light.day.value = night || fogOn ? 0 : 1;
     birds.mesh.visible = birdsOn && !night;
@@ -305,6 +314,10 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     },
     setMist(on) {
       mistOn = on;
+      apply();
+    },
+    setSiteShown(on) {
+      siteShown = on;
       apply();
     },
     setHeadset(on) {

@@ -271,7 +271,15 @@
         "reach": 1.39
       }
     },
-    "photoPosesUrl": "pirca2-10_cameras.json"
+    "photoPosesUrl": "pirca2-10_cameras.json",
+    "variants": [
+      {
+        "id": "full",
+        "label": "Solo splat",
+        "description": "El modelo completo, sin recortar: su propio entorno en splats, sin terreno ni cielo añadidos.",
+        "splatUrl": "pirca2-10_full.splat"
+      }
+    ]
   },
   {
     "id": "pirca2-04",

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { SparkRenderer, SplatFileType, SplatMesh } from '@sparkjsdev/spark';
-import type { MapLandmark, SceneTurbines } from '@/types/cesium';
+import type { MapLandmark, SceneTurbines, SceneVariant } from '@/types/cesium';
 import { assetUrl } from '@/utils/assetUrl';
 import { buildWalkArea } from '@/utils/walkArea';
 import { isHeadsetBrowser, isVRSupported, VRWalk } from '@/utils/vrWalk';
@@ -64,6 +64,11 @@ type LoadProgress = { stage: 'downloading' | 'processing'; percent: number };
 type PanoMode = 'off' | PanoViewMode;
 const PANO_LABELS: Record<PanoViewMode, string> = { photo: 'Foto 360°', relief: 'Foto 3D', scene: 'Escena 3D' };
 
+// The scene as the site has it (its splat with terrain and sky around), among the versions to compare it with
+const SITE_VERSION = 'site';
+const SITE_VERSION_LABEL = 'Con terreno';
+const SITE_VERSION_DESCRIPTION = 'El sitio en splats y, alrededor, el terreno y el cielo dibujados aparte.';
+
 // Downloads a file, reporting the bytes received and the total when the server sends its length
 async function download(url: string, signal: AbortSignal, onProgress: (received: number, total: number) => void) {
   const response = await fetch(url, { signal });
@@ -102,6 +107,32 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   const [panoLoading, setPanoLoading] = useState(false);
   const [panoError, setPanoError] = useState(false);
   const [depthColours, setDepthColours] = useState(false);
+  // Which version of the scene shows, at a site with others to compare (landmarks.json `variants`)
+  const versionRef = useRef<((id: string) => Promise<void>) | null>(null);
+  const versionRequest = useRef(0);
+  const [version, setVersion] = useState(SITE_VERSION);
+  const [versionLoading, setVersionLoading] = useState(false);
+  const [versionError, setVersionError] = useState(false);
+  const versions = site.variants?.length
+    ? [{ id: SITE_VERSION, label: SITE_VERSION_LABEL, description: SITE_VERSION_DESCRIPTION }, ...site.variants]
+    : [];
+  const changeVersion = (id: string) => {
+    const show = versionRef.current;
+    if (!show) return;
+    setVersion(id);
+    setVersionError(false);
+    setVersionLoading(true);
+    const request = ++versionRequest.current;
+    show(id)
+      .catch((e: unknown) => {
+        console.error('Error loading the scene version:', e);
+        if (request === versionRequest.current) setVersionError(true);
+      })
+      .finally(() => {
+        if (request === versionRequest.current) setVersionLoading(false);
+      });
+  };
+
   // The pyramids showing where each photo of the site was taken from
   const posesRef = useRef<PhotoPoses | null>(null);
   const [showPoses, setShowPoses] = useState(false);
@@ -151,7 +182,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   const sceneKey = JSON.stringify({
     url: site.gsplatUrl, view: site.view, environment: site.environment, turbines, npcs: site.npcs,
     lat: site.lat, lng: site.lng, heading: site.heading, metersPerUnit: site.metersPerUnit, sun: site.sun,
-    pano: site.pano, photoPosesUrl: site.photoPosesUrl,
+    pano: site.pano, photoPosesUrl: site.photoPosesUrl, variants: site.variants,
   });
 
   // Keep the latest onError without making it restart the viewer
@@ -227,6 +258,8 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
 
   const enterVR = () => {
     setVrError(false);
+    // VR walks the scene as the site has it
+    if (version !== SITE_VERSION) changeVersion(SITE_VERSION);
     panoRef.current?.exit();
     setPanoMode('off');
     vrRef.current?.enter().catch((e: unknown) => {
@@ -238,7 +271,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const { url, view, environment: env, turbines: turbineConfig, npcs, lat, lng, heading, metersPerUnit, sun, pano: panoConfig, photoPosesUrl } = JSON.parse(sceneKey);
+    const { url, view, environment: env, turbines: turbineConfig, npcs, lat, lng, heading, metersPerUnit, sun, pano: panoConfig, photoPosesUrl, variants } = JSON.parse(sceneKey);
     const limits = { ...DEFAULT_VIEW, ...view };
     const background = new THREE.Color(env?.background ?? backgroundColor);
     const far = env?.far ?? DEFAULT_FAR;
@@ -406,6 +439,9 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     });
 
     let mesh: SplatMesh | null = null;
+    const variantMeshes = new Map<string, SplatMesh>();
+    const variantLoads = new Map<string, Promise<void>>();
+    let shownVersion = SITE_VERSION;
     let environment: LoadedEnvironment | null = null;
     let windTurbines: WindTurbines | null = null;
     const load = async () => {
@@ -491,6 +527,32 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
         }
         mesh = null; // the effects own it now
         effectsRef.current = effects;
+
+        // The other versions of the scene: each a splat of its own, downloaded when first asked for and shown in
+        // place of the site's splat, terrain, sky and plants
+        versionRef.current = async (id: string) => {
+          shownVersion = id;
+          const variant = ((variants ?? []) as SceneVariant[]).find(candidate => candidate.id === id);
+          if (variant && !variantLoads.has(id)) {
+            const loading = (async () => {
+              const variantBytes = await download(assetUrl(variant.splatUrl), downloadAbort.signal, () => {});
+              const variantMesh = new SplatMesh({ fileBytes: variantBytes, fileType: SplatFileType.SPLAT });
+              variantMesh.scale.setScalar(SCENE_SCALE);
+              variantMesh.visible = false;
+              world.add(variantMesh);
+              variantMeshes.set(id, variantMesh);
+              await variantMesh.initialized;
+            })();
+            variantLoads.set(id, loading);
+            loading.catch(() => variantLoads.delete(id));
+          }
+          if (variant) await variantLoads.get(id);
+          if (cancelled) return;
+          // Whatever was asked for last, in case another choice came while this one loaded
+          const ready = shownVersion !== SITE_VERSION && variantMeshes.get(shownVersion)?.isInitialized;
+          effects?.setSiteShown(!ready);
+          for (const [key, variantMesh] of variantMeshes) variantMesh.visible = ready === true && key === shownVersion;
+        };
         setEffectsReady(true);
         setLoadProgress(null);
         setPanoReady(pano !== null);
@@ -523,6 +585,13 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       vrRef.current = null;
       effectsRef.current = null;
       panoRef.current = null;
+      versionRef.current = null;
+      setVersion(SITE_VERSION);
+      setVersionLoading(false);
+      for (const variantMesh of variantMeshes.values()) {
+        world.remove(variantMesh);
+        variantMesh.dispose();
+      }
       posesRef.current = null;
       photoPoses?.dispose();
       setPanoReady(false);
@@ -550,6 +619,12 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       viewerContainer.remove();
     };
   }, [sceneKey, backgroundColor]);
+
+  const versionStatus = (versionLoading || versionError) && version !== SITE_VERSION ? (
+    <span className="rounded-full bg-gray-900/90 px-3 py-1 text-xs text-white shadow-md" role="status">
+      {versionError ? 'No se pudo cargar esta versión' : 'Cargando esta versión…'}
+    </span>
+  ) : null;
 
   return (
     <div
@@ -629,6 +704,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
               {panoError ? 'No se pudo cargar la foto 360°' : 'Cargando foto 360°…'}
             </span>
           )}
+          {versionStatus}
           {panoMode === 'relief' && !panoLoading && !panoError && (
             <button
               onClick={() => setDepthColours(!depthColours)}
@@ -646,15 +722,32 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
             </span>
           )}
           <div className="flex items-center gap-1 rounded-full border border-gray-700 bg-gray-900/90 p-1 text-xs font-medium text-white shadow-lg backdrop-blur-sm sm:text-sm">
-            {(['photo', 'relief', 'scene'] as const).filter(mode => mode !== 'relief' || site.pano?.depth).map(mode => (
+            {(['photo', 'relief', 'scene'] as const)
+              .filter(mode => (mode !== 'relief' || site.pano?.depth) && (mode !== 'scene' || !versions.length))
+              .map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => changePanoMode(mode)}
+                  aria-pressed={panoMode === mode}
+                  className={`whitespace-nowrap rounded-full px-3 py-1.5 transition-colors ${panoMode === mode ? 'bg-orange-600' : 'hover:bg-white/10'}`}
+                  title={mode === 'relief' ? 'La foto con relieve: su profundidad, estimada por un modelo, deja moverse un poco dentro de ella' : undefined}
+                >
+                  {PANO_LABELS[mode]}
+                </button>
+              ))}
+            {/* With versions of the scene to compare, each has its own button here in place of "Escena 3D" */}
+            {versions.map(item => (
               <button
-                key={mode}
-                onClick={() => changePanoMode(mode)}
-                aria-pressed={panoMode === mode}
-                className={`whitespace-nowrap rounded-full px-3 py-1.5 transition-colors ${panoMode === mode ? 'bg-orange-600' : 'hover:bg-white/10'}`}
-                title={mode === 'relief' ? 'La foto con relieve: su profundidad, estimada por un modelo, deja moverse un poco dentro de ella' : undefined}
+                key={item.id}
+                onClick={() => {
+                  changeVersion(item.id);
+                  changePanoMode('scene');
+                }}
+                aria-pressed={panoMode === 'scene' && version === item.id}
+                className={`whitespace-nowrap rounded-full px-3 py-1.5 transition-colors ${panoMode === 'scene' && version === item.id ? 'bg-orange-600' : 'hover:bg-white/10'}`}
+                title={item.description}
               >
-                {PANO_LABELS[mode]}
+                {item.label}
               </button>
             ))}
             <button
@@ -667,6 +760,26 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* In the free view, at a site with versions of its scene to compare: which one shows */}
+      {panoMode === 'off' && versions.length > 0 && effectsReady && (
+        <div className="absolute bottom-14 left-1/2 z-40 flex -translate-x-1/2 flex-col items-center gap-1.5">
+          {versionStatus}
+          <div className="flex items-center gap-1 rounded-full border border-gray-700 bg-gray-900/90 p-1 text-xs font-medium text-white shadow-lg backdrop-blur-sm sm:text-sm">
+            {versions.map(item => (
+              <button
+                key={item.id}
+                onClick={() => changeVersion(item.id)}
+                aria-pressed={version === item.id}
+                className={`whitespace-nowrap rounded-full px-3 py-1.5 transition-colors ${version === item.id ? 'bg-orange-600' : 'hover:bg-white/10'}`}
+                title={item.description}
+              >
+                {item.label}
+              </button>
+            ))}
           </div>
         </div>
       )}

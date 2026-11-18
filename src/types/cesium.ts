@@ -30,6 +30,20 @@ export interface MapLandmark {
   // Where every photo the site was reconstructed from was taken: a JSON file in the R2 bucket, written by the
   // pipeline's site_cameras.py in the viewer's frame (see src/utils/photoPoses.ts for its layout)
   photoPosesUrl?: string;
+  // Other versions of the scene to compare with it in the viewer (a switch appears when there are any)
+  variants?: SceneVariant[];
+}
+
+// Another version of a site's scene: a splat that carries its own surroundings, shown without the terrain mesh, the
+// sky and the plants. In the same frame and scale as the site's own splat.
+export interface SceneVariant {
+  // Used in the code only; "site" is taken by the scene itself
+  id: string;
+  // What its button says, and a line explaining it
+  label: string;
+  description?: string;
+  // The splat, in the R2 bucket
+  splatUrl: string;
 }
 
 // A 360 degree photo taken at a site and registered in its reconstruction by the splat pipeline (pano_register.py
