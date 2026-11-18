@@ -25,6 +25,22 @@ export interface MapLandmark {
   environment?: SceneEnvironment;
   // People who walk the site (src/effects/npc.ts)
   npcs?: SceneNpc[];
+  // The drone's 360 degree photo of the site, to compare with the reconstruction (src/utils/panoView.ts)
+  pano?: ScenePano;
+}
+
+// A 360 degree photo taken at a site and registered in its reconstruction by the splat pipeline (pano_register.py
+// finds where it was taken and how it is turned; pano_site.py writes this entry).
+export interface ScenePano {
+  // Equirectangular image in the R2 bucket, 8192 pixels wide
+  url: string;
+  // The same at 4096 pixels, for phones
+  smallUrl?: string;
+  // Where it was taken, in the viewer's frame and units
+  position: number[];
+  // The turn (x, y, z, w) from the photo's frame to the viewer's. The photo's frame is a camera's looking at the
+  // image centre: x right, y up, z back.
+  quaternion: number[];
 }
 
 // Where the sun stood when a site was photographed: its compass bearing and its elevation, in degrees (the splat

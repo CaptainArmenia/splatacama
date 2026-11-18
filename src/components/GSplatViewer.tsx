@@ -16,6 +16,7 @@ import SceneEffectsPanel from '@/components/SceneEffectsPanel';
 import { DEFAULT_GRAPHICS, loadGraphics, saveGraphics, type GraphicsSettings } from '@/utils/graphicsSettings';
 import SceneSound from '@/components/SceneSound';
 import { createSceneSound, type SceneSound as SceneSoundEngine } from '@/utils/sceneSound';
+import { createPanoView, type PanoView } from '@/utils/panoView';
 
 type Props = {
   site: MapLandmark;
@@ -57,6 +58,9 @@ const VR_SPLAT_STD_DEV = Math.sqrt(5);
 
 type LoadProgress = { stage: 'downloading' | 'processing'; percent: number };
 
+// The site's 360 degree photo: not in use, or the camera at its viewpoint showing the photo or the scene under it
+type PanoMode = 'off' | 'photo' | 'scene';
+
 // Downloads a file, reporting the bytes received and the total when the server sends its length
 async function download(url: string, signal: AbortSignal, onProgress: (received: number, total: number) => void) {
   const response = await fetch(url, { signal });
@@ -89,6 +93,11 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   const viewerRef = useRef<{ camera: THREE.PerspectiveCamera; controls: OrbitControls; start: THREE.Vector3 } | null>(null);
   const vrRef = useRef<VRWalk | null>(null);
   const effectsRef = useRef<SceneEffects | null>(null);
+  const panoRef = useRef<PanoView | null>(null);
+  const [panoReady, setPanoReady] = useState(false);
+  const [panoMode, setPanoMode] = useState<PanoMode>('off');
+  const [panoLoading, setPanoLoading] = useState(false);
+  const [panoError, setPanoError] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadProgress, setLoadProgress] = useState<LoadProgress | null>({ stage: 'downloading', percent: 0 });
   const [vrReady, setVrReady] = useState(false);
@@ -130,6 +139,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   const sceneKey = JSON.stringify({
     url: site.gsplatUrl, view: site.view, environment: site.environment, turbines, npcs: site.npcs,
     lat: site.lat, lng: site.lng, heading: site.heading, metersPerUnit: site.metersPerUnit, sun: site.sun,
+    pano: site.pano,
   });
 
   // Keep the latest onError without making it restart the viewer
@@ -154,10 +164,43 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     meshAntialiasRef.current?.setSamples(graphics.quality ? 4 : 0);
   }, [effectsReady, graphics]);
 
+  // The 360 degree photo: go to its viewpoint (showing the photo, or the scene from there), or leave it
+  const changePanoMode = (mode: PanoMode) => {
+    const pano = panoRef.current;
+    if (!pano) return;
+    setPanoMode(mode);
+    if (mode === 'off') {
+      pano.exit();
+      return;
+    }
+    pano.showPhoto(mode === 'photo');
+    setPanoError(false);
+    setPanoLoading(true);
+    pano.enter()
+      .catch((e: unknown) => {
+        console.error('Error loading the 360 photo:', e);
+        setPanoError(true);
+      })
+      .finally(() => setPanoLoading(false));
+  };
+  // Escape leaves the photo's viewpoint
+  useEffect(() => {
+    if (panoMode === 'off') return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      panoRef.current?.exit();
+      setPanoMode('off');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [panoMode]);
+
   // Reset camera to initial position
   const resetCamera = () => {
     const viewer = viewerRef.current;
     if (!viewer) return;
+    panoRef.current?.exit();
+    setPanoMode('off');
     viewer.camera.position.copy(viewer.start);
     viewer.controls.target.fromArray(INITIAL_CAMERA_LOOK_AT);
     viewer.controls.update();
@@ -165,6 +208,8 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
 
   const enterVR = () => {
     setVrError(false);
+    panoRef.current?.exit();
+    setPanoMode('off');
     vrRef.current?.enter().catch((e: unknown) => {
       console.error('Error starting VR:', e);
       setVrError(true);
@@ -174,7 +219,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const { url, view, environment: env, turbines: turbineConfig, npcs, lat, lng, heading, metersPerUnit, sun } = JSON.parse(sceneKey);
+    const { url, view, environment: env, turbines: turbineConfig, npcs, lat, lng, heading, metersPerUnit, sun, pano: panoConfig } = JSON.parse(sceneKey);
     const limits = { ...DEFAULT_VIEW, ...view };
     const background = new THREE.Color(env?.background ?? backgroundColor);
     const far = env?.far ?? DEFAULT_FAR;
@@ -300,6 +345,10 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(viewerContainer);
 
+    // The site's 360 degree photo, shown from the point it was taken at
+    const pano = panoConfig ? createPanoView({ pano: panoConfig, renderer, camera, controls }) : null;
+    panoRef.current = pano;
+
     // setAnimationLoop rather than requestAnimationFrame: in VR the headset drives the frames
     let vr: VRWalk | null = null;
     let effects: SceneEffects | null = null;
@@ -308,6 +357,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       const deltaSeconds = lastTime ? Math.min((time - lastTime) / 1000, 0.1) : 0;
       lastTime = time;
       if (vr?.active) vr.update(deltaSeconds);
+      else if (pano?.active) pano.update(deltaSeconds);
       else controls.update();
       effects?.update(time / 1000, deltaSeconds, camera);
       soundRef.current?.setListener(camera, world);
@@ -315,7 +365,11 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
         if (meshPassInVR) meshAntialias.renderXR(scene, camera, spark);
         else renderer.render(scene, camera);
       }
-      else meshAntialias.render(scene, camera, spark);
+      else {
+        // The photo is drawn over the scene; while it covers the frame the scene isn't drawn
+        if (!pano?.covers) meshAntialias.render(scene, camera, spark);
+        pano?.render();
+      }
     });
 
     let mesh: SplatMesh | null = null;
@@ -406,6 +460,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
         effectsRef.current = effects;
         setEffectsReady(true);
         setLoadProgress(null);
+        setPanoReady(pano !== null);
 
         if (walkArea) {
           vr = new VRWalk(renderer, camera, rig, world, walkArea, metersPerUnit, far * metersPerUnit, (active) => {
@@ -434,10 +489,14 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       viewerRef.current = null;
       vrRef.current = null;
       effectsRef.current = null;
+      panoRef.current = null;
+      setPanoReady(false);
+      setPanoMode('off');
       setVrReady(false);
       setEffectsReady(false);
       vr?.dispose();
       renderer.setAnimationLoop(null);
+      pano?.dispose();
       resizeObserver.disconnect();
       controls.removeEventListener('change', keepCameraInLimits);
       controls.stopListenToKeyEvents();
@@ -525,6 +584,39 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
         <SceneSound sound={sound} hasTurbines={!!turbines} />
       </div>
 
+      {/* At the 360 degree photo's viewpoint: the photo or the scene, and the way out */}
+      {panoMode !== 'off' && (
+        <div className="absolute bottom-14 left-1/2 z-40 flex -translate-x-1/2 flex-col items-center gap-1.5 sm:bottom-4">
+          {(panoLoading || panoError) && (
+            <span className="rounded-full bg-gray-900/90 px-3 py-1 text-xs text-white shadow-md" role="status">
+              {panoError ? 'No se pudo cargar la foto 360°' : 'Cargando foto 360°…'}
+            </span>
+          )}
+          <div className="flex items-center gap-1 rounded-full border border-gray-700 bg-gray-900/90 p-1 text-xs font-medium text-white shadow-lg backdrop-blur-sm sm:text-sm">
+            {([['photo', 'Foto 360°'], ['scene', 'Escena 3D']] as const).map(([mode, label]) => (
+              <button
+                key={mode}
+                onClick={() => changePanoMode(mode)}
+                aria-pressed={panoMode === mode}
+                className={`whitespace-nowrap rounded-full px-3 py-1.5 transition-colors ${panoMode === mode ? 'bg-orange-600' : 'hover:bg-white/10'}`}
+              >
+                {label}
+              </button>
+            ))}
+            <button
+              onClick={() => changePanoMode('off')}
+              className="rounded-full p-1.5 text-gray-300 transition-colors hover:bg-white/10 hover:text-white"
+              title="Salir del punto de vista de la foto"
+              aria-label="Salir del punto de vista de la foto"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="absolute bottom-2 sm:bottom-4 right-2 sm:right-4 flex items-center gap-2">
         {/* OpenStreetMap's and Copernicus' licences ask for these credits, and the CMU motion capture database asks
             to be acknowledged */}
@@ -549,6 +641,20 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
           <span className="rounded-full bg-gray-900/90 px-3 py-1.5 text-xs text-white shadow-md">
             No se pudo iniciar la realidad virtual
           </span>
+        )}
+        {/* The drone's 360 degree photo of the site, at sites that have one */}
+        {panoReady && panoMode === 'off' && (
+          <button
+            onClick={() => changePanoMode('photo')}
+            className="flex items-center gap-1.5 rounded-full bg-gray-900/90 px-3 py-1.5 text-xs sm:text-sm font-medium text-white shadow-md transition-colors hover:bg-orange-600"
+            title="Compara la foto 360° del dron con la reconstrucción, desde el mismo punto"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 sm:h-5 sm:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" strokeWidth={1.75} />
+              <path strokeLinecap="round" strokeWidth={1.75} d="M3 12c2.5 2 5.5 3 9 3s6.5-1 9-3M12 3c-2 2.5-3 5.5-3 9s1 6.5 3 9" />
+            </svg>
+            Foto 360°
+          </button>
         )}
         {/* Only on devices with a VR headset, once the scene is ready */}
         {vrReady && (

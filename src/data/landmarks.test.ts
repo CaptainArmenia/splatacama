@@ -82,6 +82,23 @@ describe('landmarks.json', () => {
       if (environment.background !== undefined) expect(environment.background).toMatch(/^#[0-9a-f]{6}$/i);
     });
 
+  it.each(sites.filter(site => site.pano).map(site => [site.id, site] as const))(
+    '%s has its 360 photo in the R2 bucket, taken at the site', (_, site) => {
+      const pano = site.pano!;
+      for (const image of [pano.url, pano.smallUrl]) {
+        if (image === undefined) continue;
+        expect(isBucketPath(image), image).toBe(true);
+        expect(image).toMatch(/\.(jpe?g|webp)$/i);
+      }
+      // Within reach of the site (viewer units; the structure spans about 8) and above the ground (y points down)
+      expect(pano.position).toHaveLength(3);
+      expect(Math.hypot(pano.position[0], pano.position[2])).toBeLessThan(40);
+      expect(pano.position[1]).toBeLessThan(0);
+      // A rotation: a unit quaternion
+      expect(pano.quaternion).toHaveLength(4);
+      expect(Math.hypot(...pano.quaternion)).toBeCloseTo(1, 4);
+    });
+
   it.each(sites.filter(site => site.npcs).map(site => [site.id, site] as const))(
     '%s has its people in the R2 bucket', (_, site) => {
       for (const npc of site.npcs!) {

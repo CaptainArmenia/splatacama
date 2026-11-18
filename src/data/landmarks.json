@@ -142,6 +142,21 @@
       "paleSand": 0.8,
       "background": "#dde6e9",
       "far": 20000
+    },
+    "pano": {
+      "url": "pirca2-05_pano360.jpg",
+      "smallUrl": "pirca2-05_pano360_4k.jpg",
+      "position": [
+        2.0722,
+        -1.7888,
+        -4.8212
+      ],
+      "quaternion": [
+        0.846673,
+        0.003567,
+        0.532102,
+        -0.000905
+      ]
     }
   },
   {
@@ -172,6 +187,21 @@
       "paleSand": 0.8,
       "background": "#96bada",
       "far": 20000
+    },
+    "pano": {
+      "url": "pirca2-09_pano360.jpg",
+      "smallUrl": "pirca2-09_pano360_4k.jpg",
+      "position": [
+        -0.0515,
+        -3.9797,
+        -2.0449
+      ],
+      "quaternion": [
+        0.979051,
+        -0.000565,
+        0.203277,
+        -0.011743
+      ]
     }
   },
   {
@@ -202,6 +232,21 @@
       "paleSand": 0.8,
       "background": "#9bb4cb",
       "far": 20000
+    },
+    "pano": {
+      "url": "pirca2-10_pano360.jpg",
+      "smallUrl": "pirca2-10_pano360_4k.jpg",
+      "position": [
+        -0.0773,
+        -1.295,
+        -0.0206
+      ],
+      "quaternion": [
+        0.781906,
+        -0.0112,
+        -0.623034,
+        -0.018043
+      ]
     }
   },
   {
@@ -295,6 +340,21 @@
       "paleSand": 0.8,
       "background": "#dde6e9",
       "far": 20000
+    },
+    "pano": {
+      "url": "pirca2-06_pano360.jpg",
+      "smallUrl": "pirca2-06_pano360_4k.jpg",
+      "position": [
+        4.698,
+        -2.8895,
+        6.513
+      ],
+      "quaternion": [
+        0.058719,
+        0.003067,
+        0.998129,
+        0.016753
+      ]
     }
   },
   {
@@ -358,6 +418,21 @@
       "paleSand": 0.8,
       "background": "#dde6e9",
       "far": 20000
+    },
+    "pano": {
+      "url": "pirca2-11_pano360.jpg",
+      "smallUrl": "pirca2-11_pano360_4k.jpg",
+      "position": [
+        2.3914,
+        -3.9423,
+        -2.9999
+      ],
+      "quaternion": [
+        0.790093,
+        0.005527,
+        0.612962,
+        0.000853
+      ]
     }
   },
   {
