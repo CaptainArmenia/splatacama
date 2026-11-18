@@ -11,9 +11,14 @@ export type GraphicsSettings = {
   birds: boolean;
   // A light camanchaca, always about (src/effects/camanchaca.ts FOG_WISPS, and mist banks on the terrain)
   mist: boolean;
+  // For computers: clouds with depth, lit by the sun, and their shadows crossing the site (sceneEnvironment.ts
+  // SKY_VOLUME_GLSL). Costs several times the sky's usual work, so it is off unless asked for, and never on in VR.
+  quality: boolean;
 };
 
-export const DEFAULT_GRAPHICS: GraphicsSettings = { clouds: true, atmosphere: true, birds: true, mist: true };
+export const DEFAULT_GRAPHICS: GraphicsSettings = {
+  clouds: true, atmosphere: true, birds: true, mist: true, quality: false,
+};
 
 const KEY = 'splatacama.graphics';
 

@@ -22,6 +22,11 @@ import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 export type MeshAntialias = {
   /** Draws `scene` as renderer.render would, with the meshes smoothed; `splats` is the SparkRenderer */
   render: (scene: THREE.Scene, camera: THREE.Camera, splats: THREE.Object3D) => void;
+  /**
+   * How many samples the meshes are drawn with before the filter (0: one): the high-quality mode's 4 keep what is
+   * thinner than a pixel, a far turbine's blades or a ridge's line, from breaking up, which the filter alone can't
+   */
+  setSamples: (samples: number) => void;
   /** The same in a VR session, into the headset's image */
   renderXR: (scene: THREE.Scene, camera: THREE.Camera, splats: THREE.Object3D) => void;
   dispose: () => void;
@@ -108,6 +113,12 @@ export function createMeshAntialias(renderer: THREE.WebGLRenderer): MeshAntialia
 
       // 3. The splats over them
       renderSplats(scene, camera, splats);
+    },
+    setSamples(samples) {
+      if (target.samples === samples) return;
+      target.samples = samples;
+      // (its buffers are made again, with the samples, when next drawn to)
+      target.dispose();
     },
     renderXR(scene, camera, splats) {
       // The headset's image for this frame, which three.js has made the render target

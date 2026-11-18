@@ -14,7 +14,9 @@ import { createSeabirds } from '@/effects/seabirds';
 import { loadScrub, type Scrub } from '@/effects/scrub';
 import { createNightSky, type NightSky } from '@/effects/nightSky';
 import type { ParsedSplat, SiteAnalysis } from '@/effects/siteAnalysis';
-import { terrainAnisotropy, type LoadedEnvironment } from '@/utils/sceneEnvironment';
+import {
+  cloudShadowEdge, cloudShadowField, cloudShadowLight, terrainAnisotropy, type LoadedEnvironment,
+} from '@/utils/sceneEnvironment';
 import { createNpc, type Npc } from '@/effects/npc';
 import type { SceneNpc, SiteSun } from '@/types/cesium';
 import type { WindTurbines } from '@/utils/windTurbines';
@@ -81,6 +83,11 @@ export type SceneEffects = {
   /** A light camanchaca, always about: wisps in drifting patches, and banks of mist low over the sea far off */
   setMist: (on: boolean) => void;
   /**
+   * The high-quality mode, for computers: clouds with depth (sceneEnvironment.ts), and their shadows crossing the
+   * site's own splats as they cross the land. Off while a headset shows the scene.
+   */
+  setQuality: (on: boolean) => void;
+  /**
    * While a VR headset shows the scene: the terrain is shaded more simply (TerrainLight.lite) and the Bruma costera's
    * wisps aren't drawn. Thousands of large, faint splats over the whole view are costly for a headset's GPU, and in a
    * Quest 3 they showed as a wall of tiny dots around the site. Its banks of mist on the terrain stay.
@@ -95,10 +102,15 @@ export type SceneEffects = {
 // would show daytime sky. A cropped splat with terrain only keeps a dome of sky splats far out (crop_center.py); a
 // full splat has its sky on a shell a few dozen metres out, above the horizon, and smears beyond.
 // People standing on the site darken the splats in their shadow (`shadow`, from createSplatShadow).
-function siteSplatModifier(hide: any, shadow: ReturnType<typeof createSplatShadow>, metersPerFileUnit: number, cropped: boolean) {
+// In the high-quality mode the clouds' shadows cross them too (`cloud`, from createCloudShade).
+function siteSplatModifier(hide: any, shadow: ReturnType<typeof createSplatShadow>, cloud: CloudShade,
+  metersPerFileUnit: number, cropped: boolean) {
   return dyno.dynoBlock({ gsplat: dyno.Gsplat }, { gsplat: dyno.Gsplat }, ({ gsplat }: any) => {
     const d = new dyno.Dyno({
-      inTypes: { gsplat: dyno.Gsplat, hide: 'float', from: 'vec3', to: 'vec3', sun: 'vec3', strength: 'float' },
+      inTypes: {
+        gsplat: dyno.Gsplat, hide: 'float', from: 'vec3', to: 'vec3', sun: 'vec3', strength: 'float',
+        cloudField: 'vec3', cloudEdge: 'vec3', cloudLight: 'vec3',
+      },
       outTypes: { gsplat: dyno.Gsplat },
       statements: ({ inputs, outputs }: any) => dyno.unindentLines(`
         ${outputs.gsplat} = ${inputs.gsplat};
@@ -109,11 +121,29 @@ function siteSplatModifier(hide: any, shadow: ReturnType<typeof createSplatShado
           : 'float sky = max(smoothstep(20.0, 35.0, far) * smoothstep(0.0, 0.04, -c.y / max(far, 1.0)), smoothstep(120.0, 200.0, far));'}
         ${outputs.gsplat}.rgba.a *= 1.0 - ${inputs.hide} * sky;
         ${shadow.glsl(outputs.gsplat, inputs, metersPerFileUnit.toFixed(4))}
+        if (${inputs.cloudEdge}.z > 0.0) {
+          float field = ${inputs.cloudField}.x + dot(${inputs.cloudField}.yz, c.xz);
+          float shaded = ${inputs.cloudEdge}.z * smoothstep(${inputs.cloudEdge}.x, ${inputs.cloudEdge}.x + ${inputs.cloudEdge}.y, field);
+          ${outputs.gsplat}.rgba.rgb *= mix(vec3(1.0), ${inputs.cloudLight}, shaded);
+        }
       `),
     });
-    return { gsplat: d.apply({ gsplat, hide, ...shadow.uniforms }).gsplat };
+    return { gsplat: d.apply({ gsplat, hide, ...shadow.uniforms, ...cloud }).gsplat };
   });
 }
+
+// The clouds' shadow over the site, for its splats: the cloud layer's noise at the site's centre and how it changes
+// across the site (cloudField: value, per metre of x, per metre of z, the .splat file's frame), the
+// level above which it is cloud, how wide that edge is and how strong the shadow (cloudEdge; strength 0: none), and
+// what the shadow leaves of the light (cloudLight)
+type CloudShade = { cloudField: any; cloudEdge: any; cloudLight: any };
+const createCloudShade = (): CloudShade => ({
+  cloudField: dyno.dynoVec3(new THREE.Vector3()),
+  cloudEdge: dyno.dynoVec3(new THREE.Vector3(1, 1, 0)),
+  cloudLight: dyno.dynoVec3(new THREE.Vector3(1, 1, 1)),
+});
+// How far from the site's centre the noise is read to find how it changes across the site (metres)
+const CLOUD_SHADE_SPAN = 40;
 
 export async function createSceneEffects(options: SceneEffectsOptions): Promise<SceneEffects> {
   const { world, scene, renderer, file, site, analysis, environment, turbines, splat } = options;
@@ -143,9 +173,11 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     const b = THREE.MathUtils.degToRad(SWELL_BEARING);
     const swell = compass.north.clone().multiplyScalar(Math.cos(b)).addScaledVector(compass.east, Math.sin(b));
     environment.light.swell.value.set(swell.x, -swell.z).normalize();
+    environment.light.siteShadow.value = site.sun?.shadows ?? 1;
   }
   const shadowAt = new THREE.Vector3(0, -1000, 0);
-  splat.objectModifier = siteSplatModifier(hideFar, shadow, file.scale, !!environment);
+  const cloudShade = createCloudShade();
+  splat.objectModifier = siteSplatModifier(hideFar, shadow, cloudShade, file.scale, !!environment);
   splat.updateGenerator();
 
   // Stars past the terrain and inside the far plane
@@ -158,6 +190,8 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
   metric.add(mist.mesh);
   let mistOn = false;
   let headset = false;
+  let quality = false;
+  let cloudsOn = false;
   const birds = createSeabirds(analysis.groundAt(0, 0));
   metric.add(birds.mesh);
   let birdsOn = false;
@@ -210,6 +244,7 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     mist.mesh.recolor.copy(fog.mesh.recolor);
     mist.mesh.visible = mistOn && !fogOn && !headset;
     if (environment) environment.light.mist.value = mistOn && !fogOn ? 1 : 0;
+    if (environment) environment.light.quality.value = quality && !headset ? 1 : 0;
     // The splats' colours are multiplied as they're stored, the meshes' as light: the same tint, decoded, for those
     const landTint = tint.clone().convertSRGBToLinear();
     for (const mesh of environment?.terrain ?? []) (mesh.material as THREE.MeshBasicMaterial).color.copy(landTint);
@@ -234,6 +269,8 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
   };
 
   const metricCamera = new THREE.Vector3();
+  // Whether the splats are drawn with the clouds' shadow now
+  let cloudShaded = false;
 
   return {
     splat,
@@ -252,7 +289,12 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
       apply();
     },
     setClouds(on) {
+      cloudsOn = on;
       if (environment) environment.light.clouds.value = on ? CLOUD_COVER : 0;
+    },
+    setQuality(on) {
+      quality = on;
+      apply();
     },
     setAtmosphere(on) {
       if (environment) environment.light.glow.value = on ? 1 : 0;
@@ -287,6 +329,35 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
       }
       turbines?.update(seconds);
       scrub?.update(seconds, metricCamera);
+
+      // The high-quality mode's clouds, and their shadow over the site's own splats: the same shadow the terrain
+      // shader draws on the land, from the cloud layer's noise at the site and its slope across it
+      const volumeClouds = !!environment && quality && !headset && cloudsOn && !night && !fogOn;
+      if (environment && volumeClouds) {
+        environment.updateClouds(renderer, camera);
+        const { light } = environment;
+        const at = cloudShadowField(light, 0, 0);
+        const { edge, width } = cloudShadowEdge(light);
+        const field = cloudShade.cloudField.value as THREE.Vector3;
+        // (the splats' colours are multiplied as they're stored, the land's as light: the same factor, encoded)
+        const left = cloudShadowLight(-light.sun.value.y, cloudShade.cloudLight.value);
+        left.set(left.x ** (1 / 2.2), left.y ** (1 / 2.2), left.z ** (1 / 2.2));
+        // (the splats are redrawn as the noise changes: at once while a shadow's edge is near enough to show on the
+        // site, and now and then otherwise)
+        const near = at > edge - 0.08 && at < edge + width + 0.08;
+        if (!cloudShaded || edge !== cloudShade.cloudEdge.value.x || Math.abs(at - field.x) > (near ? 4e-4 : 0.03)) {
+          field.set(at,
+            (cloudShadowField(light, CLOUD_SHADE_SPAN, 0) - at) / CLOUD_SHADE_SPAN,
+            (cloudShadowField(light, 0, CLOUD_SHADE_SPAN) - at) / CLOUD_SHADE_SPAN);
+          cloudShade.cloudEdge.value.set(edge, width, light.siteShadow.value);
+          cloudShaded = true;
+          splat.updateVersion();
+        }
+      } else if (cloudShaded) {
+        cloudShade.cloudEdge.value.z = 0;
+        cloudShaded = false;
+        splat.updateVersion();
+      }
     },
     dispose() {
       disposed = true;

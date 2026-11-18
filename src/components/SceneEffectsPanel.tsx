@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import PanelToggle from '@/components/PanelToggle';
 import type { GraphicsSettings } from '@/utils/graphicsSettings';
+import { isHeadsetBrowser } from '@/utils/vrWalk';
 
 type Props = {
   night: boolean;
@@ -70,6 +71,14 @@ export default function SceneEffectsPanel(props: Props) {
           <div className="border-t border-gray-700 px-2 pt-2 text-xs font-medium uppercase tracking-wide text-gray-400">
             Gráficos
           </div>
+          {!isHeadsetBrowser() && (
+            <PanelToggle
+              label="Calidad alta"
+              description="Para computadores: nubes con volumen iluminadas por el sol, y su sombra pasando sobre el sitio."
+              on={props.graphics.quality}
+              onChange={(on) => props.onGraphicsChange({ quality: on })}
+            />
+          )}
           <PanelToggle
             label="Nubes"
             description="Nubes que pasan con el viento, su sombra sobre los cerros y su reflejo en el mar."

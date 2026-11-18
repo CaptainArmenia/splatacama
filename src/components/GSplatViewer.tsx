@@ -9,7 +9,7 @@ import { buildWalkArea } from '@/utils/walkArea';
 import { isHeadsetBrowser, isVRSupported, VRWalk } from '@/utils/vrWalk';
 import { loadSceneEnvironment, terrainAnisotropy, type LoadedEnvironment } from '@/utils/sceneEnvironment';
 import { addWindTurbines, type WindTurbines } from '@/utils/windTurbines';
-import { createMeshAntialias } from '@/utils/meshAntialias';
+import { createMeshAntialias, type MeshAntialias } from '@/utils/meshAntialias';
 import { analyzeSite, parseSplat, type SiteAnalysis } from '@/effects/siteAnalysis';
 import { createSceneEffects, type SceneEffects } from '@/effects/sceneEffects';
 import SceneEffectsPanel from '@/components/SceneEffectsPanel';
@@ -101,6 +101,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   // The graphics settings, remembered in this browser
   const [graphics, setGraphics] = useState<GraphicsSettings>(DEFAULT_GRAPHICS);
   const graphicsRef = useRef(graphics);
+  const meshAntialiasRef = useRef<MeshAntialias | null>(null);
   useEffect(() => {
     setGraphics(loadGraphics());
   }, []);
@@ -149,6 +150,8 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     effectsRef.current?.setAtmosphere(graphics.atmosphere);
     effectsRef.current?.setBirds(graphics.birds);
     effectsRef.current?.setMist(graphics.mist);
+    effectsRef.current?.setQuality(graphics.quality);
+    meshAntialiasRef.current?.setSamples(graphics.quality ? 4 : 0);
   }, [effectsReady, graphics]);
 
   // Reset camera to initial position
@@ -227,6 +230,8 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     const spark = new SparkRenderer({ renderer, maxStdDev: SPLAT_STD_DEV });
     // Smooths the meshes' edges (terrain, turbines) without touching the splats; in VR only on trial (see above)
     const meshAntialias = createMeshAntialias(renderer);
+    meshAntialiasRef.current = meshAntialias;
+    meshAntialias.setSamples(graphicsRef.current.quality ? 4 : 0);
     scene.add(spark);
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -444,6 +449,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       environment?.dispose();
       spark.dispose();
       meshAntialias.dispose();
+      meshAntialiasRef.current = null;
       renderer.dispose();
       renderer.forceContextLoss();
       viewerContainer.remove();
