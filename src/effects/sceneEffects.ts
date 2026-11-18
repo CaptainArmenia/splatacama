@@ -1,22 +1,19 @@
 /**
- * The scene effects the viewer's "Efectos" panel turns on: night (the real night sky over the site), the camanchaca
- * (coastal fog), the desierto florido (flowering desert) and an earthquake. Each changes several parts of the scene
- * at once: the splat, the terrain and sky around it, the wind turbines and the page background.
+ * The scene effects the viewer's "Efectos" panel turns on: night (the real night sky over the site) and the
+ * camanchaca (coastal fog), and its graphics settings. Each changes several parts of the scene at once: the splat, the terrain and sky around it, the wind turbines and the page background.
  *
  * The effects are built in a "metric" frame: metres, y up, the site at the origin (see siteAnalysis.ts). A group
  * inside the scene's world group turns and scales them into the viewer's frame (y down, viewer units), so in VR,
  * where the world is shown upright at real size, they come along.
  */
 import * as THREE from 'three';
-import { dyno, SplatFileType, SplatMesh } from '@sparkjsdev/spark';
+import { dyno, type SplatMesh } from '@sparkjsdev/spark';
 import { createCamanchaca, FOG_WISPS, type Camanchaca } from '@/effects/camanchaca';
 import { createDaylight, createSplatShadow, sunDirection, type Daylight } from '@/effects/daylight';
 import { createSeabirds } from '@/effects/seabirds';
 import { loadScrub, type Scrub } from '@/effects/scrub';
-import { createDesertBloom, type DesertBloom } from '@/effects/desertBloom';
-import type { Earthquake } from '@/effects/earthquake';
 import { createNightSky, type NightSky } from '@/effects/nightSky';
-import { selectSplats, type ParsedSplat, type SiteAnalysis } from '@/effects/siteAnalysis';
+import type { ParsedSplat, SiteAnalysis } from '@/effects/siteAnalysis';
 import { terrainAnisotropy, type LoadedEnvironment } from '@/utils/sceneEnvironment';
 import { createNpc, type Npc } from '@/effects/npc';
 import type { SceneNpc, SiteSun } from '@/types/cesium';
@@ -36,13 +33,6 @@ const FOG = {
   near: 15,
   far: 300,
 };
-
-// The flowers open over this long when the desierto florido is turned on, and close faster
-const BLOOM_SECONDS = 5;
-const UNBLOOM_SECONDS = 2;
-
-// Peak ground acceleration, in g: a strong earthquake close to its epicentre
-const QUAKE_STRENGTH = 0.8;
 
 // How much of the sky the clouds cover when they're on (0 to 1; see sceneEnvironment.ts): fair-weather cumulus
 const CLOUD_COVER = 0.62;
@@ -82,7 +72,6 @@ export type SceneEffects = {
   readonly splat: SplatMesh;
   setNight: (on: boolean, hour: number) => void;
   setFog: (on: boolean) => void;
-  setBloom: (on: boolean) => void;
   /** Clouds in the sky, their shadows on the land and their reflection in the sea */
   setClouds: (on: boolean) => void;
   /** The sun's disc, and the haze brighter and warmer toward it */
@@ -97,11 +86,8 @@ export type SceneEffects = {
    * Quest 3 they showed as a wall of tiny dots around the site. Its banks of mist on the terrain stay.
    */
   setHeadset: (on: boolean) => void;
-  /** Cuts the walls into stones the first time (seconds); false when the site has none */
-  startQuake: () => Promise<boolean>;
-  resetQuake: () => void;
-  /** Call every frame before rendering, with the camera; returns the camera shake to add (world frame) */
-  update: (seconds: number, deltaSeconds: number, camera: THREE.Camera) => THREE.Vector3;
+  /** Call every frame before rendering, with the camera */
+  update: (seconds: number, deltaSeconds: number, camera: THREE.Camera) => void;
   dispose: () => void;
 };
 
@@ -130,8 +116,7 @@ function siteSplatModifier(hide: any, shadow: ReturnType<typeof createSplatShado
 }
 
 export async function createSceneEffects(options: SceneEffectsOptions): Promise<SceneEffects> {
-  const { world, scene, renderer, file, site, analysis, environment, turbines } = options;
-  let splat = options.splat;
+  const { world, scene, renderer, file, site, analysis, environment, turbines, splat } = options;
 
   const metric = new THREE.Group();
   metric.name = 'scene-effects';
@@ -146,8 +131,7 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     north: new THREE.Vector3(Math.sin(h), 0, -Math.cos(h)),
   };
 
-  // Splat meshes from the site's .splat file (the main one, and the walls' while the earthquake has them), which
-  // night recolours and night and fog thin out far away
+  // The site's splat mesh: night recolours it, and night and fog thin it out far away
   const hideFar = dyno.dynoFloat(0);
   // The light the site's people stand in, and their shadows on the splats
   const daylight: Daylight | null = options.npcs?.length ? createDaylight(scene, metric, renderer, analysis, compass, site.sun) : null;
@@ -161,11 +145,8 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     environment.light.swell.value.set(swell.x, -swell.z).normalize();
   }
   const shadowAt = new THREE.Vector3(0, -1000, 0);
-  const prepareSplat = (mesh: SplatMesh) => {
-    mesh.objectModifier = siteSplatModifier(hideFar, shadow, file.scale, !!environment);
-    mesh.updateGenerator();
-  };
-  prepareSplat(splat);
+  splat.objectModifier = siteSplatModifier(hideFar, shadow, file.scale, !!environment);
+  splat.updateGenerator();
 
   // Stars past the terrain and inside the far plane
   const sky: NightSky = await createNightSky(site, compass, options.far * 0.9 * site.metersPerUnit);
@@ -177,8 +158,6 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
   metric.add(mist.mesh);
   let mistOn = false;
   let headset = false;
-  const flowers: DesertBloom = createDesertBloom(analysis, Math.min(options.splatRadius, analysis.half));
-  metric.add(flowers.mesh);
   const birds = createSeabirds(analysis.groundAt(0, 0));
   metric.add(birds.mesh);
   let birdsOn = false;
@@ -221,20 +200,11 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
 
   let night = false;
   let fogOn = false;
-  let bloomTarget = 0;
-  let bloom = 0;
-  let earthquake: Earthquake | null = null;
-  let preparingQuake: Promise<boolean> | null = null;
-
-  const splatMeshes = () => [splat, ...(earthquake?.meshes ?? [])];
 
   // Night and fog both change the background, the terrain, the sky and the far splats
   const apply = () => {
     const tint = night ? NIGHT.tint : new THREE.Color(1, 1, 1);
-    for (const mesh of [...splatMeshes(), flowers.mesh]) {
-      mesh.recolor.copy(tint);
-      mesh.updateVersion();
-    }
+    splat.recolor.copy(tint);
     fog.mesh.recolor.copy(night ? NIGHT.fogTint : new THREE.Color(1, 1, 1));
     fog.mesh.updateVersion();
     mist.mesh.recolor.copy(fog.mesh.recolor);
@@ -260,17 +230,13 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
     renderer.setClearColor(fogOn ? fogColor : night ? NIGHT.background : options.background, 1);
 
     hideFar.value = night || fogOn ? 1 : 0;
-    for (const mesh of splatMeshes()) mesh.updateVersion();
+    splat.updateVersion();
   };
 
   const metricCamera = new THREE.Vector3();
-  const shake = new THREE.Vector3();
-  const metricToWorld = new THREE.Matrix3();
 
   return {
-    get splat() {
-      return splat;
-    },
+    splat,
     setNight(on, hour) {
       night = on;
       if (on) {
@@ -304,46 +270,8 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
       if (environment) environment.light.lite.value = on ? 1 : 0;
       apply();
     },
-    setBloom(on) {
-      bloomTarget = on ? 1 : 0;
-      if (on) flowers.mesh.visible = true;
-    },
-    startQuake() {
-      if (!preparingQuake) {
-        preparingQuake = (async () => {
-          const { createEarthquake } = await import('@/effects/earthquake');
-          const quake = await createEarthquake(file, analysis);
-          if (!quake) return false;
-          // The walls move to their own meshes; the main mesh is rebuilt without them, and swapped in once ready
-          const rest = new SplatMesh({ fileBytes: selectSplats(file, quake.wallFlags, 0), fileType: SplatFileType.SPLAT });
-          await rest.initialized;
-          for (const mesh of [rest, ...quake.meshes]) {
-            mesh.position.copy(splat.position);
-            mesh.quaternion.copy(splat.quaternion);
-            mesh.scale.copy(splat.scale);
-            prepareSplat(mesh);
-          }
-          const parent = splat.parent ?? world;
-          parent.add(rest, ...quake.meshes);
-          splat.removeFromParent();
-          splat.dispose();
-          splat = rest;
-          earthquake = quake;
-          apply();
-          return true;
-        })();
-      }
-      return preparingQuake.then(ready => {
-        if (ready) earthquake?.start(QUAKE_STRENGTH);
-        return ready;
-      });
-    },
-    resetQuake() {
-      earthquake?.reset();
-    },
     update(seconds, deltaSeconds, camera) {
       sky.update(seconds);
-      flowers.update(seconds);
       if (birds.mesh.visible) birds.update(seconds);
       camera.getWorldPosition(metricCamera);
       fog.update(seconds, metric.worldToLocal(metricCamera));
@@ -355,26 +283,10 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
         shadow.uniforms.from.value.copy(npcs[0].feet).setY(npcs[0].feet.y + 0.1);
         shadow.uniforms.to.value.copy(npcs[0].head).setY(npcs[0].head.y - 0.14);
         shadow.uniforms.strength.value = 1;
-        for (const mesh of splatMeshes()) mesh.updateVersion();
+        splat.updateVersion();
       }
       turbines?.update(seconds);
       scrub?.update(seconds, metricCamera);
-
-      if (bloom !== bloomTarget) {
-        const step = deltaSeconds / (bloomTarget > bloom ? BLOOM_SECONDS : UNBLOOM_SECONDS);
-        bloom = bloomTarget > bloom ? Math.min(bloomTarget, bloom + step) : Math.max(bloomTarget, bloom - step);
-        flowers.setBloom(bloom);
-        if (environment) environment.bloom.value = bloom;
-        if (bloom === 0) flowers.mesh.visible = false;
-      }
-
-      shake.set(0, 0, 0);
-      if (earthquake) {
-        earthquake.step(deltaSeconds);
-        metricToWorld.setFromMatrix4(metric.matrixWorld);
-        shake.copy(earthquake.shake).applyMatrix3(metricToWorld);
-      }
-      return shake;
     },
     dispose() {
       disposed = true;
@@ -384,9 +296,7 @@ export async function createSceneEffects(options: SceneEffectsOptions): Promise<
       sky.dispose();
       fog.dispose();
       mist.dispose();
-      flowers.dispose();
       birds.dispose();
-      earthquake?.dispose();
       metric.removeFromParent();
       scene.fog = null;
       splat.removeFromParent();

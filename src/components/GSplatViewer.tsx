@@ -12,7 +12,7 @@ import { addWindTurbines, type WindTurbines } from '@/utils/windTurbines';
 import { createMeshAntialias } from '@/utils/meshAntialias';
 import { analyzeSite, parseSplat, type SiteAnalysis } from '@/effects/siteAnalysis';
 import { createSceneEffects, type SceneEffects } from '@/effects/sceneEffects';
-import SceneEffectsPanel, { type QuakeState } from '@/components/SceneEffectsPanel';
+import SceneEffectsPanel from '@/components/SceneEffectsPanel';
 import { DEFAULT_GRAPHICS, loadGraphics, saveGraphics, type GraphicsSettings } from '@/utils/graphicsSettings';
 import SceneSound from '@/components/SceneSound';
 import { createSceneSound, type SceneSound as SceneSoundEngine } from '@/utils/sceneSound';
@@ -98,7 +98,6 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   const [night, setNight] = useState(false);
   const [hour, setHour] = useState(22);
   const [fog, setFog] = useState(false);
-  const [bloom, setBloom] = useState(false);
   // The graphics settings, remembered in this browser
   const [graphics, setGraphics] = useState<GraphicsSettings>(DEFAULT_GRAPHICS);
   const graphicsRef = useRef(graphics);
@@ -112,7 +111,6 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       return next;
     });
   };
-  const [quake, setQuake] = useState<QuakeState>('idle');
 
   // The wind and the turbines' sound: one for the page, kept across scene changes
   const [sound, setSound] = useState<SceneSoundEngine | null>(null);
@@ -146,31 +144,12 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     effectsRef.current?.setFog(fog);
   }, [effectsReady, fog]);
   useEffect(() => {
-    effectsRef.current?.setBloom(bloom);
-  }, [effectsReady, bloom]);
-  useEffect(() => {
     graphicsRef.current = graphics;
     effectsRef.current?.setClouds(graphics.clouds);
     effectsRef.current?.setAtmosphere(graphics.atmosphere);
     effectsRef.current?.setBirds(graphics.birds);
     effectsRef.current?.setMist(graphics.mist);
   }, [effectsReady, graphics]);
-
-  const startQuake = () => {
-    const effects = effectsRef.current;
-    if (!effects) return;
-    setQuake('preparing');
-    effects.startQuake()
-      .then(ready => setQuake(ready ? 'shaken' : 'unavailable'))
-      .catch((e: unknown) => {
-        console.error('Error starting the earthquake:', e);
-        setQuake('unavailable');
-      });
-  };
-  const resetQuake = () => {
-    effectsRef.current?.resetQuake();
-    setQuake('idle');
-  };
 
   // Reset camera to initial position
   const resetCamera = () => {
@@ -325,15 +304,13 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       lastTime = time;
       if (vr?.active) vr.update(deltaSeconds);
       else controls.update();
-      const shake = effects?.update(time / 1000, deltaSeconds, camera);
-      if (shake) camera.position.add(shake);
+      effects?.update(time / 1000, deltaSeconds, camera);
       soundRef.current?.setListener(camera, world);
       if (renderer.xr.isPresenting) {
         if (meshPassInVR) meshAntialias.renderXR(scene, camera, spark);
         else renderer.render(scene, camera);
       }
       else meshAntialias.render(scene, camera, spark);
-      if (shake) camera.position.sub(shake);
     });
 
     let mesh: SplatMesh | null = null;
@@ -389,8 +366,8 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
         // lod: Spark builds a level-of-detail tree in a worker and then draws at most a budget of splats per frame.
         // Only headsets need it: Spark's budget for them (500k splats on a Quest) is below a scene's splat count
         // (about 1M). Elsewhere the budget covers the whole scene, and building the tree would add over a second to
-        // loading. Spark keeps the bytes it's given (they move to its worker), so it gets a copy: the effects cut
-        // the walls out of the file later.
+        // loading. Spark keeps the bytes it's given (they move to its worker), so it gets a copy: the site
+        // analysis reads the original.
         mesh = new SplatMesh({ fileBytes: bytes.slice(), fileType: SplatFileType.SPLAT, lod: walkArea !== null });
         mesh.scale.setScalar(SCENE_SCALE);
         world.add(mesh);
@@ -420,7 +397,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
           effects.dispose();
           return;
         }
-        mesh = null; // the effects own it now (the earthquake can replace it)
+        mesh = null; // the effects own it now
         effectsRef.current = effects;
         setEffectsReady(true);
         setLoadProgress(null);
@@ -536,9 +513,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
             night={night} onNightChange={setNight}
             hour={hour} onHourChange={setHour}
             fog={fog} onFogChange={setFog}
-            bloom={bloom} onBloomChange={setBloom}
             graphics={graphics} onGraphicsChange={changeGraphics}
-            quake={quake} onStartQuake={startQuake} onResetQuake={resetQuake}
           />
         )}
         <SceneSound sound={sound} hasTurbines={!!turbines} />

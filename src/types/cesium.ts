@@ -15,7 +15,7 @@ export interface MapLandmark {
   heading: number;
   // Metres per splat viewer unit, the site's real size. The splat pipeline scales each site so its main structure is
   // 8 units across, so this is the structure's diameter / 8. VR shows the scene at real size with it, and the effects
-  // (flowers, fog, earthquake) are built in metres.
+  // (fog, night sky, people) are built in metres.
   metersPerUnit: number;
   // The sun of the site's photos, for the shadows of its people and of the plants around it
   sun?: SiteSun;

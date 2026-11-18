@@ -3,8 +3,6 @@ import { useState } from 'react';
 import PanelToggle from '@/components/PanelToggle';
 import type { GraphicsSettings } from '@/utils/graphicsSettings';
 
-export type QuakeState = 'idle' | 'preparing' | 'shaken' | 'unavailable';
-
 type Props = {
   night: boolean;
   onNightChange: (on: boolean) => void;
@@ -13,13 +11,8 @@ type Props = {
   onHourChange: (hour: number) => void;
   fog: boolean;
   onFogChange: (on: boolean) => void;
-  bloom: boolean;
-  onBloomChange: (on: boolean) => void;
   graphics: GraphicsSettings;
   onGraphicsChange: (change: Partial<GraphicsSettings>) => void;
-  quake: QuakeState;
-  onStartQuake: () => void;
-  onResetQuake: () => void;
 };
 
 const formatHour = (hour: number) => {
@@ -73,41 +66,6 @@ export default function SceneEffectsPanel(props: Props) {
             on={props.fog}
             onChange={props.onFogChange}
           />
-          <PanelToggle
-            label="Desierto florido"
-            description="Pata de guanaco, añañuca y suspiro sobre el suelo descubierto."
-            on={props.bloom}
-            onChange={props.onBloomChange}
-          />
-
-          <div className="px-2 py-1.5">
-            <span className="block text-sm font-medium">Sismo</span>
-            <span className="block text-xs text-gray-400">
-              Los muros capturados, cortados en piedras con física real. Es una demostración: las piedras escaneadas no
-              tienen cara posterior.
-            </span>
-            <div className="mt-2 flex gap-2">
-              {props.quake === 'unavailable' ? (
-                <span className="text-xs text-gray-400">Esta escena no tiene muros que mover.</span>
-              ) : (
-                <button
-                  onClick={props.onStartQuake}
-                  disabled={props.quake === 'preparing'}
-                  className="rounded-md bg-orange-600 px-3 py-1 text-xs font-medium transition-colors hover:bg-orange-500 disabled:cursor-wait disabled:opacity-60"
-                >
-                  {props.quake === 'preparing' ? 'Preparando…' : props.quake === 'shaken' ? 'Otro sismo' : 'Iniciar sismo'}
-                </button>
-              )}
-              {props.quake === 'shaken' && (
-                <button
-                  onClick={props.onResetQuake}
-                  className="rounded-md border border-gray-600 px-3 py-1 text-xs transition-colors hover:border-orange-600"
-                >
-                  Restaurar
-                </button>
-              )}
-            </div>
-          </div>
 
           <div className="border-t border-gray-700 px-2 pt-2 text-xs font-medium uppercase tracking-wide text-gray-400">
             Gráficos

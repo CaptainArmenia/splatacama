@@ -169,7 +169,6 @@ const TERRAIN_DETAIL_HEADER = `
   uniform float detailPhoto;
   uniform sampler2D photoMask;
   uniform vec3 detailSea;
-  uniform float detailBloom;
   uniform sampler2D scrubMap;
   uniform vec4 scrubInfo;
   uniform vec3 scrubGain;
@@ -231,8 +230,6 @@ const TERRAIN_DETAIL_HEADER = `
 // bare ground has the colour of the splat's own (scrubNear), easing to the other over scrubReach (viewer units):
 // from close by one looks down on the sand between the plants, which far off hide it. A second, much smaller tile
 // (scrubGrain, its period in metres) is the pebbles seen from up close, divided by its own mean.
-// Desierto florido (detailBloom): drifts of flowers in the colours of the splat's own (see desertBloom.ts) cover the
-// land out to a few kilometres, thinning into the haze the colours have baked in (env_build.py --haze-km 8).
 // env_build.py's aerial perspective: its e-folding distance (metres), its default (--haze-km 8) for every site
 const HAZE_METRES = 8000;
 // The share of the light on level ground that comes from the sky rather than the sun
@@ -537,21 +534,12 @@ const TERRAIN_DETAIL_FRAGMENT = `{
       vec2 sg = sm * scrubInfo.x / scrubGrainPeriod;
       diffuseColor.rgb *= mix(vec3(1.0), texture2D(scrubGrain, sg).rgb / texture2D(scrubGrain, sg, 12.0).rgb, 0.6 * ks);
     }
-    if (detailBloom > 0.0) {
-      vec2 q = vTerrainPosition.xz / (detailSea.y * 40.0);
-      float cover = smoothstep(0.42, 0.7, 0.65 * detailNoise(q) + 0.35 * detailNoise(q * 3.7 + 5.0));
-      float kind = detailNoise(q * 0.23 + 11.0);
-      vec3 flower = kind < 0.55 ? vec3(0.86, 0.3, 0.6) : kind < 0.78 ? vec3(0.95, 0.8, 0.25) : vec3(0.68, 0.6, 0.92);
-      float amount = detailBloom * cover * land * smoothstep(0.4, 0.8, abs(normal.y))
-        * smoothstep(detailFade.x, detailFade.y, r) * exp(-rm / 8000.0);
-      diffuseColor.rgb = mix(diffuseColor.rgb, pow(flower, vec3(2.2)) * 0.8, 0.6 * amount);
-    }
     ${TERRAIN_LIGHT_FRAGMENT}
   }`;
 
 // Multiplies the detail texture over a terrain material's colours (the meshes' positions are in the viewer's frame)
 function addTerrainDetail(material: any, texture: any, photoMask: any, detail: TerrainDetail, anisotropy: number,
-  bloom: { value: number }, scrub: TerrainScrub, light: TerrainLight) {
+  scrub: TerrainScrub, light: TerrainLight) {
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   texture.anisotropy = anisotropy;
   material.userData.detailMap = texture;
@@ -566,7 +554,6 @@ function addTerrainDetail(material: any, texture: any, photoMask: any, detail: T
     shader.uniforms.detailSea = {
       value: new THREE.Vector3(detail.seaZ ?? -1e6, detail.unitsPerMetre ?? 1, detail.earthRadius ?? 6.4e6),
     };
-    shader.uniforms.detailBloom = bloom;
     shader.uniforms.scrubMap = scrub.map;
     shader.uniforms.scrubInfo = scrub.info;
     shader.uniforms.scrubGain = scrub.gain;
@@ -774,8 +761,6 @@ export type LoadedEnvironment = {
   // The terrain meshes, for finding heights on it (wind turbines) and darkening it at night
   terrain: THREE.Mesh[];
   sky: THREE.Mesh | null;
-  // 0 to 1: how much of the land the desierto florido covers
-  bloom: { value: number };
   scrub: TerrainScrub;
   light: TerrainLight;
   dispose: () => void;
@@ -803,7 +788,6 @@ export async function loadSceneEnvironment(
   }
   const group = new THREE.Group();
   group.name = 'scene-environment';
-  const bloom = { value: 0 };
   const blank = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
   blank.needsUpdate = true;
   const scrub: TerrainScrub = {
@@ -910,14 +894,14 @@ export async function loadSceneEnvironment(
         gltf.parser.getDependency('texture', detail.texture),
         detail.photoMask !== undefined ? gltf.parser.getDependency('texture', detail.photoMask) : null,
       ]).then(([texture, photoMask]: any[]) =>
-        addTerrainDetail(object.material, texture, photoMask, detail, anisotropy, bloom, scrub, light)));
+        addTerrainDetail(object.material, texture, photoMask, detail, anisotropy, scrub, light)));
     }
   });
   await Promise.all(details);
   group.add(gltf.scene);
 
   return {
-    group, terrain, sky, bloom, scrub, light,
+    group, terrain, sky, scrub, light,
     dispose: () => {
       blank.dispose();
       light.noise.value.dispose();

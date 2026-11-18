@@ -9,7 +9,7 @@ The current sites are *pircas*: circular dry-stone structures from before the Sp
 | Route | What it shows |
 | --- | --- |
 | `/` | CesiumJS globe with world terrain and satellite imagery. Each site is a round pin made from its preview photo. Clicking a pin opens an info panel with a **Ver Escena 3D** ("view 3D scene") button. |
-| `/scene/[id]` | Full-screen Gaussian splat viewer (three.js with [Spark](https://sparkjs.dev/)) for that site, with a back-to-map button, a toggleable info panel, a wind sound, and an **Efectos** panel: the real night sky over the site, the camanchaca (coastal fog), the desierto florido (flowering desert) and an earthquake. Every site is drawn with the terrain around it out to the horizon, strewn near the site with its own plants and stones. On a VR headset it adds a **Ver en VR** button for walking through the site at real size. |
+| `/scene/[id]` | Full-screen Gaussian splat viewer (three.js with [Spark](https://sparkjs.dev/)) for that site, with a back-to-map button, a toggleable info panel, a wind sound, and an **Efectos** panel: the real night sky over the site and the camanchaca (coastal fog), plus graphics settings (clouds, atmosphere, coastal mist, seabirds). Every site is drawn with the terrain around it out to the horizon, strewn near the site with its own plants and stones. On a VR headset it adds a **Ver en VR** button for walking through the site at real size. |
 
 Site data lives in [src/data/landmarks.json](src/data/landmarks.json). Large assets (the `.splat` files, terrain, skies and preview JPEGs) live in a Cloudflare R2 bucket, not in this repo. The app builds each asset URL from `NEXT_PUBLIC_R2_PUBLIC_DOMAIN` and the file name in the JSON, and the browser downloads them straight from the bucket. Every page is static; there's no server code.
 
@@ -19,7 +19,6 @@ Site data lives in [src/data/landmarks.json](src/data/landmarks.json). Large ass
 - Tailwind CSS 4
 - CesiumJS 1.145 with a Cesium ion account for terrain and imagery
 - Spark (`@sparkjsdev/spark`) 2.4 on three.js 0.186, with WebXR for VR headsets
-- Rapier (`@dimforge/rapier3d-compat`) for the earthquake's physics, downloaded only when a visitor starts one
 - Cloudflare R2 for asset storage
 - pnpm for packages; the project is set up to deploy on Vercel
 
@@ -139,7 +138,7 @@ src/
     MapWithPins.tsx           loads the map on the client only
     CesiumMapComponent.tsx    map UI: pins, hover and selection, panels, controls
     GSplatViewer.tsx          splat viewer (Spark): loading, terrain, camera limits, effects panel, sound, VR button
-    SceneEffectsPanel.tsx     the "Efectos" panel: night, camanchaca, desierto florido, earthquake
+    SceneEffectsPanel.tsx     the "Efectos" panel: night, camanchaca, graphics settings
     SceneSound.tsx            the sound button and its panel: wind and turbines, each on or off
     PanelToggle.tsx           the on/off switch both panels use
     LandmarkInfoPanel.tsx     info panel on the map
@@ -149,7 +148,7 @@ src/
   effects/                    the scene effects, built from the splat when a scene loads
     siteAnalysis.ts           reads ground, walls and bushes off the splats
     sceneEffects.ts           turns effects on and off across the splat, terrain, sky and turbines
-    nightSky.ts, camanchaca.ts, desertBloom.ts, earthquake.ts
+    nightSky.ts, camanchaca.ts
     npc.ts                    people who walk a site: finds the walkable ground, wanders, walks and idles
   hooks/
     useCesiumViewer.ts        creates and destroys the Cesium viewer: imagery, terrain, pins, click/hover handlers
@@ -178,7 +177,7 @@ next.config.js                webpack setup for Cesium
 
 - **Map view.** The starting point, camera height, heading and pitch, terrain exaggeration, zoom limits, and pin and cluster sizes are all in [src/constants/cesiumConfig.ts](src/constants/cesiumConfig.ts).
 - **Splat viewer.** Camera start position, up vector, scene scale and the default camera limits are set in [src/components/GSplatViewer.tsx](src/components/GSplatViewer.tsx). The camera can look from any angle, but it can't zoom out past the site's `maxDistance`, leave the circle of its `radius`, or go below a standing visitor's eye height.
-- **Effects.** Colours, fog distances, the flowers' opening time and the earthquake's strength are at the top of [src/effects/sceneEffects.ts](src/effects/sceneEffects.ts). The night sky uses today's date at the chosen hour, in Chile's summer time (UTC-3).
+- **Effects.** Colours and fog distances are at the top of [src/effects/sceneEffects.ts](src/effects/sceneEffects.ts). The night sky uses today's date at the chosen hour, in Chile's summer time (UTC-3).
 - **VR.** Headsets (and computers with one attached) get a **Ver en VR** button. The left stick walks where you look, the right stick turns in 30° steps, and walking around the room works too. Visitors stay on the ground and can't walk through walls or bushes or past the well-captured part of the scene; all of that is read off the splats when the scene loads ([src/utils/walkArea.ts](src/utils/walkArea.ts), tuned in `WALK_CONFIG`). Speed, turning and headset rendering settings are in `VR_CONFIG` in [src/utils/vrWalk.ts](src/utils/vrWalk.ts). Phones don't get VR.
 - **Credits.** Scenes show credits their data's licences ask for: OpenStreetMap for the wind turbines, Copernicus (elevation data and Sentinel-2 imagery) for the terrain, and the CMU Graphics Lab Motion Capture Database (mocap.cs.cmu.edu, created with funding from NSF EIA-0196217) for the people's movement. The people's bodies and clothes are MakeHuman's, public domain (CC0). The sound is made in the browser, with no recordings; the star catalogue is d3-celestial's `stars.6.json`.
 - **Rendering.** The map only redraws when something changes, to save battery. Code that changes pins or other map entities must call `viewer.scene.requestRender()`.

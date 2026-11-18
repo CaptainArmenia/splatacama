@@ -1,8 +1,7 @@
 /**
  * A 2.5D reading of a splat scene, built from the .splat file when the scene loads: the top surface, the bare ground
- * under the walls, and which cells are standing structure (walls) or bushes. The effects build on it: flowers grow
- * on bare ground only, the fog sits on the ground, the earthquake cuts the walls into stones, and the camera stays
- * above the top surface.
+ * under the walls, and which cells are standing structure (walls) or bushes. The effects build on it: the fog sits on
+ * the ground, the site's people walk round the walls and bushes, and the camera stays above the top surface.
  *
  * Everything here is in the "metric" frame the effects use: metres, y up, the site at the origin. The .splat file is
  * y down; turning it 180 degrees about x makes it y up: (x, y, z) -> (x, -y, -z), times metres per file unit. VR uses
@@ -45,20 +44,6 @@ export function parseSplat(bytes: Uint8Array, metersPerFileUnit: number): Parsed
     g: i => u8[i * SPLAT_RECORD_BYTES + 25] / 255,
     b: i => u8[i * SPLAT_RECORD_BYTES + 26] / 255,
   };
-}
-
-/** A new .splat file with only the splats whose flag equals `keep` */
-export function selectSplats(splat: ParsedSplat, flags: Uint8Array, keep: 0 | 1): Uint8Array {
-  let n = 0;
-  for (let i = 0; i < splat.count; i++) if (flags[i] === keep) n++;
-  const out = new Uint8Array(n * SPLAT_RECORD_BYTES);
-  let o = 0;
-  for (let i = 0; i < splat.count; i++) {
-    if (flags[i] !== keep) continue;
-    out.set(splat.u8.subarray(i * SPLAT_RECORD_BYTES, (i + 1) * SPLAT_RECORD_BYTES), o);
-    o += SPLAT_RECORD_BYTES;
-  }
-  return out;
 }
 
 const EMPTY = -1e9;
