@@ -97,6 +97,16 @@ describe('landmarks.json', () => {
       // A rotation: a unit quaternion
       expect(pano.quaternion).toHaveLength(4);
       expect(Math.hypot(...pano.quaternion)).toBeCloseTo(1, 4);
+      if (pano.depth) {
+        expect(isBucketPath(pano.depth.url), pano.depth.url).toBe(true);
+        expect(pano.depth.url).toMatch(/\.png$/i);
+        expect(pano.depth.near).toBeGreaterThan(0);
+        expect(pano.depth.far).toBeGreaterThan(pano.depth.near);
+        // Metres the camera may move: less than the viewpoint's height above the ground
+        expect(pano.depth.reach).toBeGreaterThan(0.2);
+        expect(pano.depth.reach).toBeLessThanOrEqual(4);
+        expect(pano.depth.reach).toBeLessThan(-pano.position[1] * site.metersPerUnit);
+      }
     });
 
   it.each(sites.filter(site => site.npcs).map(site => [site.id, site] as const))(

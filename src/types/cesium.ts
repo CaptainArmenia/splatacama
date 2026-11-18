@@ -41,6 +41,21 @@ export interface ScenePano {
   // The turn (x, y, z, w) from the photo's frame to the viewer's. The photo's frame is a camera's looking at the
   // image centre: x right, y up, z back.
   quaternion: number[];
+  // How far each pixel of the photo is, for showing it with depth ("Foto 3D")
+  depth?: PanoDepth;
+}
+
+// A 360 photo's depth map: estimated from the photo alone by a depth model (Depth Any Panoramas) and scaled to the
+// site's reconstruction by the pipeline's pano_depth_fit.py.
+export interface PanoDepth {
+  // PNG in the R2 bucket, equirectangular like the photo. Each pixel holds 16 bits in its red (high) and green (low)
+  // bytes: the distance is near * (far / near) ^ (value / 65535) metres, and 65535 is the sky.
+  url: string;
+  near: number;
+  far: number;
+  // How far the camera may move from the photo's viewpoint, in metres: about half the distance to the nearest thing
+  // in the photo. Farther, the gaps behind things (which one photo can't fill) open too wide.
+  reach: number;
 }
 
 // Where the sun stood when a site was photographed: its compass bearing and its elevation, in degrees (the splat

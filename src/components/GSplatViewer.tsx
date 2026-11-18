@@ -16,7 +16,7 @@ import SceneEffectsPanel from '@/components/SceneEffectsPanel';
 import { DEFAULT_GRAPHICS, loadGraphics, saveGraphics, type GraphicsSettings } from '@/utils/graphicsSettings';
 import SceneSound from '@/components/SceneSound';
 import { createSceneSound, type SceneSound as SceneSoundEngine } from '@/utils/sceneSound';
-import { createPanoView, type PanoView } from '@/utils/panoView';
+import { createPanoView, type PanoMode as PanoViewMode, type PanoView } from '@/utils/panoView';
 
 type Props = {
   site: MapLandmark;
@@ -58,8 +58,10 @@ const VR_SPLAT_STD_DEV = Math.sqrt(5);
 
 type LoadProgress = { stage: 'downloading' | 'processing'; percent: number };
 
-// The site's 360 degree photo: not in use, or the camera at its viewpoint showing the photo or the scene under it
-type PanoMode = 'off' | 'photo' | 'scene';
+// The site's 360 degree photo: not in use, or the camera at its viewpoint showing the photo, the photo with depth
+// or the scene
+type PanoMode = 'off' | PanoViewMode;
+const PANO_LABELS: Record<PanoViewMode, string> = { photo: 'Foto 360°', relief: 'Foto 3D', scene: 'Escena 3D' };
 
 // Downloads a file, reporting the bytes received and the total when the server sends its length
 async function download(url: string, signal: AbortSignal, onProgress: (received: number, total: number) => void) {
@@ -98,6 +100,9 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   const [panoMode, setPanoMode] = useState<PanoMode>('off');
   const [panoLoading, setPanoLoading] = useState(false);
   const [panoError, setPanoError] = useState(false);
+  const [depthColours, setDepthColours] = useState(false);
+  // Counts the views asked for, so a slow download's end doesn't change the label of a later choice
+  const panoRequest = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [loadProgress, setLoadProgress] = useState<LoadProgress | null>({ stage: 'downloading', percent: 0 });
   const [vrReady, setVrReady] = useState(false);
@@ -169,20 +174,27 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     const pano = panoRef.current;
     if (!pano) return;
     setPanoMode(mode);
+    const request = ++panoRequest.current;
+    setPanoError(false);
     if (mode === 'off') {
+      setPanoLoading(false);
       pano.exit();
       return;
     }
-    pano.showPhoto(mode === 'photo');
-    setPanoError(false);
     setPanoLoading(true);
-    pano.enter()
+    pano.show(mode)
       .catch((e: unknown) => {
         console.error('Error loading the 360 photo:', e);
-        setPanoError(true);
+        if (request === panoRequest.current) setPanoError(true);
       })
-      .finally(() => setPanoLoading(false));
+      .finally(() => {
+        // Only the latest choice decides what the label says
+        if (request === panoRequest.current) setPanoLoading(false);
+      });
   };
+  useEffect(() => {
+    panoRef.current?.setDepthColours(depthColours);
+  }, [depthColours, panoReady]);
   // Escape leaves the photo's viewpoint
   useEffect(() => {
     if (panoMode === 'off') return;
@@ -346,7 +358,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     resizeObserver.observe(viewerContainer);
 
     // The site's 360 degree photo, shown from the point it was taken at
-    const pano = panoConfig ? createPanoView({ pano: panoConfig, renderer, camera, controls }) : null;
+    const pano = panoConfig ? createPanoView({ pano: panoConfig, renderer, camera, controls, metersPerUnit }) : null;
     panoRef.current = pano;
 
     // setAnimationLoop rather than requestAnimationFrame: in VR the headset drives the frames
@@ -492,6 +504,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       panoRef.current = null;
       setPanoReady(false);
       setPanoMode('off');
+      setDepthColours(false);
       setVrReady(false);
       setEffectsReady(false);
       vr?.dispose();
@@ -586,21 +599,38 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
 
       {/* At the 360 degree photo's viewpoint: the photo or the scene, and the way out */}
       {panoMode !== 'off' && (
-        <div className="absolute bottom-14 left-1/2 z-40 flex -translate-x-1/2 flex-col items-center gap-1.5 sm:bottom-4">
+        <div className="absolute bottom-14 left-1/2 z-40 flex -translate-x-1/2 flex-col items-center gap-1.5">
           {(panoLoading || panoError) && (
             <span className="rounded-full bg-gray-900/90 px-3 py-1 text-xs text-white shadow-md" role="status">
               {panoError ? 'No se pudo cargar la foto 360°' : 'Cargando foto 360°…'}
             </span>
           )}
+          {panoMode === 'relief' && !panoLoading && !panoError && (
+            <button
+              onClick={() => setDepthColours(!depthColours)}
+              aria-pressed={depthColours}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs text-white shadow-md transition-colors ${depthColours ? 'bg-orange-600' : 'bg-gray-900/90 hover:bg-gray-700'}`}
+              title="Colores según la distancia: rojo lo cercano, azul lo lejano"
+            >
+              <span className="h-2.5 w-6 rounded-full bg-gradient-to-r from-red-600 via-yellow-300 to-blue-600" aria-hidden="true" />
+              Mapa de profundidad
+            </button>
+          )}
+          {panoMode !== 'photo' && !panoLoading && (
+            <span className="hidden rounded-full bg-black/40 px-2 py-0.5 text-[10px] text-white/80 sm:block">
+              Arrastra para mirar · rueda o teclas W A S D para moverte
+            </span>
+          )}
           <div className="flex items-center gap-1 rounded-full border border-gray-700 bg-gray-900/90 p-1 text-xs font-medium text-white shadow-lg backdrop-blur-sm sm:text-sm">
-            {([['photo', 'Foto 360°'], ['scene', 'Escena 3D']] as const).map(([mode, label]) => (
+            {(['photo', 'relief', 'scene'] as const).filter(mode => mode !== 'relief' || site.pano?.depth).map(mode => (
               <button
                 key={mode}
                 onClick={() => changePanoMode(mode)}
                 aria-pressed={panoMode === mode}
                 className={`whitespace-nowrap rounded-full px-3 py-1.5 transition-colors ${panoMode === mode ? 'bg-orange-600' : 'hover:bg-white/10'}`}
+                title={mode === 'relief' ? 'La foto con relieve: su profundidad, estimada por un modelo, deja moverse un poco dentro de ella' : undefined}
               >
-                {label}
+                {PANO_LABELS[mode]}
               </button>
             ))}
             <button
@@ -620,7 +650,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       <div className="absolute bottom-2 sm:bottom-4 right-2 sm:right-4 flex items-center gap-2">
         {/* OpenStreetMap's and Copernicus' licences ask for these credits, and the CMU motion capture database asks
             to be acknowledged */}
-        {(turbines || site.environment || site.npcs?.length) && (
+        {(turbines || site.environment || site.npcs?.length || site.pano?.depth) && (
           <span className="hidden sm:flex max-w-md flex-col items-end rounded bg-black/40 px-1.5 py-0.5 text-right text-[10px] leading-tight text-white/80">
             {turbines && (
               <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" className="hover:text-white">
@@ -629,6 +659,11 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
             )}
             {site.environment && (
               <span>Terreno: Copernicus DEM © DLR e.V., © Airbus; contiene datos Copernicus Sentinel modificados (2026)</span>
+            )}
+            {site.pano?.depth && (
+              <a href="https://github.com/Insta360-Research-Team/DAP" target="_blank" rel="noopener noreferrer" className="hover:text-white">
+                Profundidad de la foto 360°: Depth Any Panoramas (Insta360 Research)
+              </a>
             )}
             {site.npcs?.length ? (
               <a href="http://mocap.cs.cmu.edu" target="_blank" rel="noopener noreferrer" className="hover:text-white">
