@@ -161,6 +161,7 @@ src/
     sceneEnvironment.ts       terrain and sky around a cropped splat, with the terrain's detail texture
     meshAntialias.ts          smooths the meshes' edges (FXAA) without touching the splats
     panoView.ts               the site's 360 photo, shown from the point it was taken at, to compare with the scene
+    photoPoses.ts             the photos' camera positions, drawn as wireframe pyramids (Efectos > Cámaras de las fotos)
     windTurbines.ts           real wind turbines on a scene's terrain or backdrop, with turning rotors
     sceneSound.ts             the scene's sound (Web Audio): each sound on or off, start on the first click, listener follows the camera
     windAmbience.ts           wind made from noise, in gusts (no recording)

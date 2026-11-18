@@ -27,6 +27,9 @@ export interface MapLandmark {
   npcs?: SceneNpc[];
   // The drone's 360 degree photo of the site, to compare with the reconstruction (src/utils/panoView.ts)
   pano?: ScenePano;
+  // Where every photo the site was reconstructed from was taken: a JSON file in the R2 bucket, written by the
+  // pipeline's site_cameras.py in the viewer's frame (see src/utils/photoPoses.ts for its layout)
+  photoPosesUrl?: string;
 }
 
 // A 360 degree photo taken at a site and registered in its reconstruction by the splat pipeline (pano_register.py

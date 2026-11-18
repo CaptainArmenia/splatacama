@@ -17,6 +17,7 @@ import { DEFAULT_GRAPHICS, loadGraphics, saveGraphics, type GraphicsSettings } f
 import SceneSound from '@/components/SceneSound';
 import { createSceneSound, type SceneSound as SceneSoundEngine } from '@/utils/sceneSound';
 import { createPanoView, type PanoMode as PanoViewMode, type PanoView } from '@/utils/panoView';
+import { createPhotoPoses, type PhotoPoses } from '@/utils/photoPoses';
 
 type Props = {
   site: MapLandmark;
@@ -101,6 +102,9 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   const [panoLoading, setPanoLoading] = useState(false);
   const [panoError, setPanoError] = useState(false);
   const [depthColours, setDepthColours] = useState(false);
+  // The pyramids showing where each photo of the site was taken from
+  const posesRef = useRef<PhotoPoses | null>(null);
+  const [showPoses, setShowPoses] = useState(false);
   // Counts the views asked for, so a slow download's end doesn't change the label of a later choice
   const panoRequest = useRef(0);
   const [error, setError] = useState<string | null>(null);
@@ -109,6 +113,9 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   const [vrError, setVrError] = useState(false);
 
   const [effectsReady, setEffectsReady] = useState(false);
+  useEffect(() => {
+    posesRef.current?.setVisible(showPoses);
+  }, [showPoses, effectsReady]);
   const [night, setNight] = useState(false);
   const [hour, setHour] = useState(22);
   const [fog, setFog] = useState(false);
@@ -144,7 +151,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   const sceneKey = JSON.stringify({
     url: site.gsplatUrl, view: site.view, environment: site.environment, turbines, npcs: site.npcs,
     lat: site.lat, lng: site.lng, heading: site.heading, metersPerUnit: site.metersPerUnit, sun: site.sun,
-    pano: site.pano,
+    pano: site.pano, photoPosesUrl: site.photoPosesUrl,
   });
 
   // Keep the latest onError without making it restart the viewer
@@ -231,10 +238,18 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const { url, view, environment: env, turbines: turbineConfig, npcs, lat, lng, heading, metersPerUnit, sun, pano: panoConfig } = JSON.parse(sceneKey);
+    const { url, view, environment: env, turbines: turbineConfig, npcs, lat, lng, heading, metersPerUnit, sun, pano: panoConfig, photoPosesUrl } = JSON.parse(sceneKey);
     const limits = { ...DEFAULT_VIEW, ...view };
     const background = new THREE.Color(env?.background ?? backgroundColor);
     const far = env?.far ?? DEFAULT_FAR;
+
+    // On trial, for comparing versions of a scene on the live site without changing it for visitors:
+    // ?splat=<file in the bucket> loads that splat instead of the site's, and ?noenv leaves out the terrain mesh, the
+    // sky and the plants, to see a splat that carries its own surroundings.
+    const trial = new URLSearchParams(window.location.search);
+    const trialSplat = trial.get('splat');
+    const splatUrl = trialSplat && /^[\w.-]+\.splat$/.test(trialSplat) ? trialSplat : url;
+    const splatOnly = trial.has('noenv');
 
     let cancelled = false;
     const downloadAbort = new AbortController();
@@ -357,6 +372,12 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(viewerContainer);
 
+    // Where each photo of the site was taken from, drawn when asked for
+    const photoPoses = photoPosesUrl
+      ? createPhotoPoses({ url: photoPosesUrl, world, metersPerUnit, pano: panoConfig?.position })
+      : null;
+    posesRef.current = photoPoses;
+
     // The site's 360 degree photo, shown from the point it was taken at
     const pano = panoConfig ? createPanoView({ pano: panoConfig, renderer, camera, controls, metersPerUnit }) : null;
     panoRef.current = pano;
@@ -396,13 +417,13 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
         const received = { splat: 0, terrain: 0 };
         const totals = { splat: 0, terrain: 0 };
         const showProgress = () => {
-          if (cancelled || !totals.splat || (env && !totals.terrain)) return;
+          if (cancelled || !totals.splat || (env && !splatOnly && !totals.terrain)) return;
           const percent = Math.min(100, Math.floor(((received.splat + received.terrain) / (totals.splat + totals.terrain)) * 100));
           // Only re-render when the shown number changes
           setLoadProgress(prev => (prev?.percent === percent ? prev : { stage: 'downloading', percent }));
         };
         // Without it the scene still works, cut off at the edge of the site
-        const environmentLoaded = env
+        const environmentLoaded = env && !splatOnly
           ? loadSceneEnvironment(env, terrainAnisotropy(renderer), (loaded, total) => {
             received.terrain = loaded;
             totals.terrain = total;
@@ -413,7 +434,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
             return null;
           })
           : Promise.resolve(null);
-        const bytes = await download(assetUrl(url), downloadAbort.signal, (got, total) => {
+        const bytes = await download(assetUrl(splatUrl), downloadAbort.signal, (got, total) => {
           received.splat = got;
           totals.splat = total;
           showProgress();
@@ -462,7 +483,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
           world, scene, renderer, splat: mesh, file, analysis: siteAnalysis, environment, turbines: windTurbines,
           site: { lat, lng, heading, metersPerUnit, sun },
           splatRadius: limits.radius * metersPerUnit,
-          background, far, npcs, scrubUrl: env?.scrubUrl, scrubReach: env?.scrubReach,
+          background, far, npcs, scrubUrl: splatOnly ? undefined : env?.scrubUrl, scrubReach: env?.scrubReach,
         });
         if (cancelled) {
           effects.dispose();
@@ -502,6 +523,8 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
       vrRef.current = null;
       effectsRef.current = null;
       panoRef.current = null;
+      posesRef.current = null;
+      photoPoses?.dispose();
       setPanoReady(false);
       setPanoMode('off');
       setDepthColours(false);
@@ -592,6 +615,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
             hour={hour} onHourChange={setHour}
             fog={fog} onFogChange={setFog}
             graphics={graphics} onGraphicsChange={changeGraphics}
+            photoPoses={site.photoPosesUrl ? showPoses : undefined} onPhotoPosesChange={setShowPoses}
           />
         )}
         <SceneSound sound={sound} hasTurbines={!!turbines} />

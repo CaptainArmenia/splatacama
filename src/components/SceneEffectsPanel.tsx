@@ -14,6 +14,9 @@ type Props = {
   onFogChange: (on: boolean) => void;
   graphics: GraphicsSettings;
   onGraphicsChange: (change: Partial<GraphicsSettings>) => void;
+  // The photos' camera positions drawn in the scene; undefined at a site without them
+  photoPoses?: boolean;
+  onPhotoPosesChange: (on: boolean) => void;
 };
 
 const formatHour = (hour: number) => {
@@ -67,6 +70,15 @@ export default function SceneEffectsPanel(props: Props) {
             on={props.fog}
             onChange={props.onFogChange}
           />
+
+          {props.photoPoses !== undefined && (
+            <PanelToggle
+              label="Cámaras de las fotos"
+              description="Dónde estaba y hacia dónde miraba el dron en cada foto con la que se reconstruyó este lugar."
+              on={props.photoPoses}
+              onChange={props.onPhotoPosesChange}
+            />
+          )}
 
           <div className="border-t border-gray-700 px-2 pt-2 text-xs font-medium uppercase tracking-wide text-gray-400">
             Gráficos
