@@ -1,7 +1,7 @@
 [
   {
     "id": "pirca0",
-    "name": "Pirca",
+    "name": "Quebrada Cachinales",
     "lat": -28.955,
     "lng": -71.476,
     "height": 30,
@@ -29,7 +29,7 @@
   },
   {
     "id": "pirca11",
-    "name": "Pirca",
+    "name": "Ña María",
     "lat": -29.237684,
     "lng": -71.452685,
     "height": 30,
@@ -59,7 +59,7 @@
   },
   {
     "id": "pirca12",
-    "name": "Pirca",
+    "name": "Ña María",
     "lat": -29.237427,
     "lng": -71.452572,
     "height": 30,
@@ -89,7 +89,7 @@
   },
   {
     "id": "pirca13",
-    "name": "Pirca",
+    "name": "El aguilucho",
     "lat": -29.079736,
     "lng": -71.461843,
     "height": 30,
@@ -171,7 +171,7 @@
   },
   {
     "id": "pirca2-09",
-    "name": "Pirca",
+    "name": "Pirca Las Locitas",
     "lat": -29.055039,
     "lng": -71.479059,
     "height": 30,
@@ -323,7 +323,7 @@
   },
   {
     "id": "pirca2-08",
-    "name": "Pirca",
+    "name": "Majada Tía Elsa",
     "lat": -29.02898,
     "lng": -71.48602,
     "height": 30,
