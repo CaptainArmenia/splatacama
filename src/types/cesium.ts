@@ -6,6 +6,9 @@ export interface MapLandmark {
   height: number;
   description: string;
   gsplatUrl: string;
+  // A lighter version of the scene (fewer splats, a smaller file) that phones, tablets and headsets load instead:
+  // their GPUs and connections can't take the full one
+  gsplatLightUrl?: string;
   previewUrl?: string;
   // Small image for the map pin; the pin falls back to previewUrl if it's missing or fails to load
   thumbnailUrl?: string;

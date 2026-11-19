@@ -37,6 +37,11 @@ describe('landmarks.json', () => {
   it.each(sites.map(site => [site.id, site] as const))('%s points at files in the R2 bucket', (_, site) => {
     expect(isBucketPath(site.gsplatUrl), site.gsplatUrl).toBe(true);
     expect(site.gsplatUrl).toMatch(/\.splat$/);
+    if (site.gsplatLightUrl !== undefined) {
+      expect(isBucketPath(site.gsplatLightUrl), site.gsplatLightUrl).toBe(true);
+      expect(site.gsplatLightUrl).toMatch(/\.splat$/);
+      expect(site.gsplatLightUrl).not.toBe(site.gsplatUrl);
+    }
     for (const variant of site.variants ?? []) {
       expect(variant.id).toMatch(/^[a-z0-9-]+$/);
       expect(variant.id).not.toBe('site');

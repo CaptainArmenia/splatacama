@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { SparkRenderer, SplatFileType, SplatMesh } from '@sparkjsdev/spark';
+import { isMobile, SparkRenderer, SplatFileType, SplatMesh } from '@sparkjsdev/spark';
 import type { MapLandmark, SceneTurbines, SceneVariant } from '@/types/cesium';
 import { assetUrl } from '@/utils/assetUrl';
 import { buildWalkArea } from '@/utils/walkArea';
@@ -10,7 +10,7 @@ import { isHeadsetBrowser, isVRSupported, VRWalk } from '@/utils/vrWalk';
 import { loadSceneEnvironment, terrainAnisotropy, type LoadedEnvironment } from '@/utils/sceneEnvironment';
 import { addWindTurbines, type WindTurbines } from '@/utils/windTurbines';
 import { createMeshAntialias, type MeshAntialias } from '@/utils/meshAntialias';
-import { analyzeSite, parseSplat, type SiteAnalysis } from '@/effects/siteAnalysis';
+import { analyzeSite, parseSplat, SPLAT_RECORD_BYTES, type SiteAnalysis } from '@/effects/siteAnalysis';
 import { createSceneEffects, type SceneEffects } from '@/effects/sceneEffects';
 import SceneEffectsPanel from '@/components/SceneEffectsPanel';
 import { DEFAULT_GRAPHICS, loadGraphics, saveGraphics, type GraphicsSettings } from '@/utils/graphicsSettings';
@@ -35,6 +35,11 @@ const SCENE_SCALE = 10;
 
 // The site's main structure is about 8 viewer units across (see MapLandmark.metersPerUnit)
 const SITE_RADIUS_UNITS = 4;
+
+// The most splats drawn in a frame outside VR. A scene with more is drawn through Spark's level-of-detail tree, which
+// picks them by distance: at a 2880 x 1800 window a 3.1 million splat scene ran at 52-58 frames a second whole and at
+// 72-81 with this budget, for a start view about 13% softer. The tree takes about 4 s longer to come up sharp.
+const SPLAT_BUDGET = 2_000_000;
 
 // Camera limits for sites without their own (landmarks.json `view`). The camera may look from any angle, but away
 // from where the photos were taken splat scenes turn to smears and needles, so it can't zoom out past maxDistance
@@ -180,7 +185,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
 
   // What the viewer is built from, as a string, so new but equal objects don't restart it
   const sceneKey = JSON.stringify({
-    url: site.gsplatUrl, view: site.view, environment: site.environment, turbines, npcs: site.npcs,
+    url: site.gsplatUrl, lightUrl: site.gsplatLightUrl, view: site.view, environment: site.environment, turbines, npcs: site.npcs,
     lat: site.lat, lng: site.lng, heading: site.heading, metersPerUnit: site.metersPerUnit, sun: site.sun,
     pano: site.pano, photoPosesUrl: site.photoPosesUrl, variants: site.variants, plainBlur: site.plainBlur,
   });
@@ -271,7 +276,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const { url, view, environment: env, turbines: turbineConfig, npcs, lat, lng, heading, metersPerUnit, sun, pano: panoConfig, photoPosesUrl, variants, plainBlur } = JSON.parse(sceneKey);
+    const { url, lightUrl, view, environment: env, turbines: turbineConfig, npcs, lat, lng, heading, metersPerUnit, sun, pano: panoConfig, photoPosesUrl, variants, plainBlur } = JSON.parse(sceneKey);
     const limits = { ...DEFAULT_VIEW, ...view };
     const background = new THREE.Color(env?.background ?? backgroundColor);
     const far = env?.far ?? DEFAULT_FAR;
@@ -281,7 +286,11 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     // sky and the plants, to see a splat that carries its own surroundings.
     const trial = new URLSearchParams(window.location.search);
     const trialSplat = trial.get('splat');
-    const splatUrl = trialSplat && /^[\w.-]+\.splat$/.test(trialSplat) ? trialSplat : url;
+    // Phones, tablets and headsets load the site's lighter scene, where it has one
+    const siteSplatUrl = lightUrl && (isMobile() || isHeadsetBrowser()) ? lightUrl : url;
+    const splatUrl = trialSplat && /^[\w.-]+\.splat$/.test(trialSplat) ? trialSplat : siteSplatUrl;
+    // ?lod=<splats> draws at most that many splats a frame on any device, to try a budget (see SPLAT_BUDGET)
+    const trialBudget = Number(trial.get('lod')) || 0;
     const splatOnly = trial.has('noenv');
 
     let cancelled = false;
@@ -500,11 +509,14 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
         if (cancelled) return;
 
         // lod: Spark builds a level-of-detail tree in a worker and then draws at most a budget of splats per frame.
-        // Only headsets need it: Spark's budget for them (500k splats on a Quest) is below a scene's splat count
-        // (about 1M). Elsewhere the budget covers the whole scene, and building the tree would add over a second to
-        // loading. Spark keeps the bytes it's given (they move to its worker), so it gets a copy: the site
-        // analysis reads the original.
-        mesh = new SplatMesh({ fileBytes: bytes.slice(), fileType: SplatFileType.SPLAT, lod: walkArea !== null });
+        // Headsets need it: Spark's budget for them (500k splats on a Quest) is below a scene's splat count (about
+        // 1M). So does a scene above SPLAT_BUDGET anywhere else. Under the budget the whole scene is drawn, and
+        // building the tree would only add seconds to loading. Spark keeps the bytes it's given (they move to its
+        // worker), so it gets a copy: the site analysis reads the original.
+        const splatBudget = trialBudget || SPLAT_BUDGET;
+        const overBudget = bytes.byteLength / SPLAT_RECORD_BYTES > splatBudget;
+        if (walkArea === null && overBudget) spark.lodSplatCount = splatBudget;
+        mesh = new SplatMesh({ fileBytes: bytes.slice(), fileType: SplatFileType.SPLAT, lod: walkArea !== null || overBudget });
         mesh.scale.setScalar(SCENE_SCALE);
         world.add(mesh);
         const [, loadedEnvironment] = await Promise.all([mesh.initialized, environmentLoaded]);
