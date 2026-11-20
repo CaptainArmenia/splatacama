@@ -119,8 +119,7 @@
   },
   {
     "id": "pirca2-05",
-    "localOnly": true,
-    "name": "Pirca",
+    "name": "Pircas de Amaro",
     "lat": -29.128279,
     "lng": -71.484464,
     "height": 30,
@@ -226,8 +225,7 @@
   },
   {
     "id": "pirca2-10",
-    "localOnly": true,
-    "name": "Pirca",
+    "name": "Pirca Las Locitas",
     "lat": -29.057512,
     "lng": -71.479507,
     "height": 30,
@@ -450,8 +448,7 @@
   },
   {
     "id": "pirca2-11",
-    "localOnly": true,
-    "name": "Pirca",
+    "name": "Pirca del Rubio Mugre",
     "lat": -29.066078,
     "lng": -71.483094,
     "height": 30,
