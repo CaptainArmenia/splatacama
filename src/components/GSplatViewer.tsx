@@ -188,6 +188,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     url: site.gsplatUrl, lightUrl: site.gsplatLightUrl, view: site.view, environment: site.environment, turbines, npcs: site.npcs,
     lat: site.lat, lng: site.lng, heading: site.heading, metersPerUnit: site.metersPerUnit, sun: site.sun,
     pano: site.pano, photoPosesUrl: site.photoPosesUrl, variants: site.variants, plainBlur: site.plainBlur,
+    lightPlainBlur: site.lightPlainBlur,
   });
 
   // Keep the latest onError without making it restart the viewer
@@ -276,7 +277,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const { url, lightUrl, view, environment: env, turbines: turbineConfig, npcs, lat, lng, heading, metersPerUnit, sun, pano: panoConfig, photoPosesUrl, variants, plainBlur } = JSON.parse(sceneKey);
+    const { url, lightUrl, view, environment: env, turbines: turbineConfig, npcs, lat, lng, heading, metersPerUnit, sun, pano: panoConfig, photoPosesUrl, variants, plainBlur, lightPlainBlur } = JSON.parse(sceneKey);
     const limits = { ...DEFAULT_VIEW, ...view };
     const background = new THREE.Color(env?.background ?? backgroundColor);
     const far = env?.far ?? DEFAULT_FAR;
@@ -287,7 +288,10 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     const trial = new URLSearchParams(window.location.search);
     const trialSplat = trial.get('splat');
     // Phones, tablets and headsets load the site's lighter scene, where it has one
-    const siteSplatUrl = lightUrl && (isMobile() || isHeadsetBrowser()) ? lightUrl : url;
+    const usesLightScene = Boolean(lightUrl) && (isMobile() || isHeadsetBrowser());
+    const siteSplatUrl = usesLightScene ? lightUrl : url;
+    // The lighter scene can be an older model that needs the other blur (see usePlainBlur below)
+    const sitePlainBlur = usesLightScene && lightPlainBlur !== undefined ? lightPlainBlur : plainBlur;
     const splatUrl = trialSplat && /^[\w.-]+\.splat$/.test(trialSplat) ? trialSplat : siteSplatUrl;
     // ?lod=<splats> draws at most that many splats a frame on any device, to try a budget (see SPLAT_BUDGET)
     const trialBudget = Number(trial.get('lod')) || 0;
@@ -346,7 +350,7 @@ export default function GSplatViewer({ site, turbines, backgroundColor = '#f5f5f
     // that draws its dark detail with small splats over large pale ones then comes out washed. `plainBlur` in
     // landmarks.json draws a site as it was trained; ?blur=plain or ?blur=aa tries the other on any site.
     const blurTrial = new URLSearchParams(window.location.search).get('blur');
-    const usePlainBlur = blurTrial === 'plain' || (blurTrial !== 'aa' && plainBlur === true);
+    const usePlainBlur = blurTrial === 'plain' || (blurTrial !== 'aa' && sitePlainBlur === true);
     const spark = new SparkRenderer({
       renderer, maxStdDev: SPLAT_STD_DEV, ...(usePlainBlur ? { preBlurAmount: 0.3, blurAmount: 0 } : {}),
     });

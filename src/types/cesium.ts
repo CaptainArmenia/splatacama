@@ -38,6 +38,8 @@ export interface MapLandmark {
   // Draw the splat with the trainer's blur instead of the renderer's anti-aliased one (see GSplatViewer.tsx): for
   // models that come out washed otherwise. Check a site in the app both ways (?blur=plain, ?blur=aa) before setting it.
   plainBlur?: boolean;
+  // The same for the gsplatLightUrl scene, when it is an older model that needs the other blur. Defaults to plainBlur.
+  lightPlainBlur?: boolean;
 }
 
 // Another version of a site's scene: a splat that carries its own surroundings, shown without the terrain mesh, the
