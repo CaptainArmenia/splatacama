@@ -2,12 +2,13 @@ import React from 'react';
 import { notFound } from 'next/navigation';
 import GSplatViewer from "@/components/GSplatViewer";
 import Link from "next/link";
-import landmarks from '@/data/landmarks.json';
+import { sites as landmarks } from '@/data/sites';
 import type { MapLandmark, SceneTurbines } from '@/types/cesium';
 import ToggleableInfoPanel from '@/components/ToggleableInfoPanel';
 import windTurbines from '@/data/windTurbines.json';
 
-// The site list is static, so every scene page can be built ahead of time
+// The site list is static, so every scene page can be built ahead of time (the deployed site's list leaves out the
+// sites marked localOnly: see src/data/sites.ts)
 export function generateStaticParams() {
   return landmarks.map((landmark) => ({ id: landmark.id }));
 }

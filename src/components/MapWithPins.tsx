@@ -5,9 +5,9 @@ import { LoadingMessage } from './LoadingMessage';
 import type { MapLandmark } from '@/types/cesium';
 // Imported statically so the list is there on the first render. The viewer is built from it, and a list that
 // arrived later would make the viewer rebuild.
-import landmarkData from '@/data/landmarks.json';
+import { sites } from '@/data/sites';
 
-const landmarks: MapLandmark[] = landmarkData;
+const landmarks: MapLandmark[] = sites;
 
 // Draw pins on top of terrain instead of letting hills hide them
 const PREVENT_PIN_OCCLUSION = true;

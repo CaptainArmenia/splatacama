@@ -1,5 +1,7 @@
 export interface MapLandmark {
   id: string;
+  // Shown on a developer's machine only: the deployed site has no pin and no scene page for it (src/data/sites.ts)
+  localOnly?: boolean;
   name: string;
   lat: number;
   lng: number;

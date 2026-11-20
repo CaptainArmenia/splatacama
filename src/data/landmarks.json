@@ -119,6 +119,7 @@
   },
   {
     "id": "pirca2-05",
+    "localOnly": true,
     "name": "Pirca",
     "lat": -29.128279,
     "lng": -71.484464,
@@ -225,6 +226,7 @@
   },
   {
     "id": "pirca2-10",
+    "localOnly": true,
     "name": "Pirca",
     "lat": -29.057512,
     "lng": -71.479507,
@@ -292,6 +294,7 @@
   },
   {
     "id": "pirca2-04",
+    "localOnly": true,
     "name": "Pirca",
     "lat": -29.129717,
     "lng": -71.483751,
@@ -357,6 +360,7 @@
   },
   {
     "id": "pirca2-06",
+    "localOnly": true,
     "name": "Pirca",
     "lat": -29.127561,
     "lng": -71.481485,
@@ -413,7 +417,7 @@
   },
   {
     "id": "pirca2-07",
-    "name": "Pirca",
+    "name": "Aguada Panucillo",
     "lat": -29.027685,
     "lng": -71.49559,
     "height": 30,
@@ -446,6 +450,7 @@
   },
   {
     "id": "pirca2-11",
+    "localOnly": true,
     "name": "Pirca",
     "lat": -29.066078,
     "lng": -71.483094,
@@ -502,6 +507,7 @@
   },
   {
     "id": "pirca2-02",
+    "localOnly": true,
     "name": "Pirca",
     "lat": -29.079355,
     "lng": -71.491621,
@@ -537,6 +543,7 @@
   },
   {
     "id": "pirca2-03",
+    "localOnly": true,
     "name": "Pirca",
     "lat": -29.08179,
     "lng": -71.487679,

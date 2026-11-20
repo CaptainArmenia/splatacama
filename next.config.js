@@ -7,6 +7,11 @@ const cesiumPath = path.dirname(require.resolve('cesium/package.json'));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // The deployed site leaves out the sites marked localOnly in landmarks.json (src/data/sites.ts). Vercel's builds
+  // set VERCEL=1; a build on a developer's machine shows every site.
+  env: {
+    NEXT_PUBLIC_HIDE_LOCAL_ONLY_SITES: process.env.VERCEL === '1' ? '1' : '',
+  },
   webpack: (config, { isServer }) => {
     // Cesium references these Node modules; there's nothing to load for them in the browser
     config.resolve.fallback = {
@@ -20,6 +25,16 @@ const nextConfig = {
         CESIUM_BASE_URL: JSON.stringify('/cesium')
       })
     );
+
+    // On Vercel's builds the localOnly sites are also dropped from the bundled site list itself, so their positions
+    // and file names aren't shipped to visitors (src/data/sites.ts then has nothing left to hide)
+    if (process.env.VERCEL === '1') {
+      config.module.rules.push({
+        test: /src[\\/]data[\\/]landmarks\.json$/,
+        type: 'json',
+        parser: { parse: (source) => JSON.parse(source).filter((site) => !site.localOnly) },
+      });
+    }
 
     config.resolve.alias = {
       ...config.resolve.alias,

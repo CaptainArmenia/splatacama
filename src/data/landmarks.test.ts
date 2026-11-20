@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import landmarks from './landmarks.json';
 import windTurbines from './windTurbines.json';
 import type { MapLandmark, SceneTurbines } from '@/types/cesium';
+import { visibleSites } from './sites';
 
 // Checks the site list, the one data file the map and the scene pages are built from
 const sites: MapLandmark[] = landmarks;
@@ -11,6 +12,14 @@ const sites: MapLandmark[] = landmarks;
 const isBucketPath = (path: string) => !/^[a-z]+:\/\//i.test(path) && !path.startsWith('/');
 
 describe('landmarks.json', () => {
+  it('keeps the localOnly sites off the deployed site, and every site elsewhere', () => {
+    const deployed = visibleSites(sites, true);
+    expect(deployed.length).toBeGreaterThan(0);
+    expect(deployed.some(site => site.localOnly)).toBe(false);
+    expect(deployed.length).toBe(sites.filter(site => !site.localOnly).length);
+    expect(visibleSites(sites, false)).toEqual(sites);
+  });
+
   it('has sites', () => {
     expect(sites.length).toBeGreaterThan(0);
   });
