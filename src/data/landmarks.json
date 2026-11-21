@@ -293,7 +293,7 @@
   {
     "id": "pirca2-04",
     "localOnly": true,
-    "name": "Pirca",
+    "name": "Pirca Caleta Ardiles",
     "lat": -29.129717,
     "lng": -71.483751,
     "height": 30,
@@ -359,7 +359,7 @@
   {
     "id": "pirca2-06",
     "localOnly": true,
-    "name": "Pirca",
+    "name": "Pirca Caleta Ardiles",
     "lat": -29.127561,
     "lng": -71.481485,
     "height": 30,
@@ -505,7 +505,7 @@
   {
     "id": "pirca2-02",
     "localOnly": true,
-    "name": "Pirca",
+    "name": "Las Pircas",
     "lat": -29.079355,
     "lng": -71.491621,
     "height": 30,
@@ -541,7 +541,7 @@
   {
     "id": "pirca2-03",
     "localOnly": true,
-    "name": "Pirca",
+    "name": "Pirca del chango Amaro",
     "lat": -29.08179,
     "lng": -71.487679,
     "height": 30,
